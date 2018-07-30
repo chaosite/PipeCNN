@@ -6,7 +6,7 @@ HOST_INCS = ../common
 HOST_DEBUG =
 
 #if you are loading images from OpenCV interfaces please set to 1
-USE_OPENCV = 0
+USE_OPENCV = 1
 
 #set source and target for device
 #supported vendors are xilinx, altera, amd
@@ -44,9 +44,9 @@ ifeq ($(PLATFORM),x86)
 CXX := g++
 ifeq ($(USE_OPENCV),1)
 #add your OpenCV PATH here
-OCV_INCLUDES = -I/usr/local/include/
-OCV_LIBDIRS = -L/usr/local/lib 
-OCV_LIBS =  -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_ml
+#OCV_INCLUDES = -I/usr/local/include/
+#OCV_LIBDIRS = -L/usr/local/lib 
+OCV_LIBS =  -lopencv_core -lopencv_imgcodecs -lopencv_imgproc -lopencv_highgui -lopencv_ml
 endif
 else ifeq ($(PLATFORM),arm32)
 CXX := $(CROSS-COMPILE)g++
@@ -84,7 +84,7 @@ endif
 #xilinx
 ifeq ($(VENDOR),xilinx)
 OCC = $(XILINX_SDX)/bin/xocc -DXILINX
-OCCFLAGS = --platform xilinx:kcu1500:4ddr-xpr:4.0 -t $(FLOW) -O2  --kernel_frequency 200  --save-temps  --report system \
+OCCFLAGS = --platform xilinx:kcu1500:4ddr-xpr:4.0 -t $(FLOW) -O2  --kernel_frequency 200  --save-temps  -report system \
 --memory_port_data_width memWrite:32 \
 --memory_port_data_width memRead:512 \
 --nk memWrite:1  --nk coreConv:1  --nk lrn:1  --nk maxPool:1  --nk memRead:1 \
@@ -105,9 +105,9 @@ endif
 else ifeq ($(VENDOR),altera)
 OCC = aoc
 ifeq ($(FLOW),sw_emu)
-OCCFLAGS = -v --report -march=emulator -I device/RTL -L device/RTL -l rtl_lib.aoclib 
+OCCFLAGS = -v -report -march=emulator -I device/RTL -L device/RTL -l rtl_lib.aoclib 
 else ifeq ($(FLOW),hw)
-OCCFLAGS = -v --report --profile -I device/RTL -L device/RTL -l rtl_lib.aoclib 
+OCCFLAGS = -v -report --profile -I device/RTL -L device/RTL -l rtl_lib.aoclib 
 endif
 #amd
 else ifeq ($(VENDOR),amd)
