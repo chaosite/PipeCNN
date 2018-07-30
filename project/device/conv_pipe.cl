@@ -44,7 +44,10 @@
 #include "hw_param.cl"
 #include "rtl_lib.h"
 
-#pragma OPENCL_EXTENSION cl_altera_channels : enable
+#pragma OPENCL EXTENSION cl_intel_channels : enable
+
+#define read_channel_altera read_channel_intel
+#define write_channel_altera write_channel_intel
 
 // Define the precision of the data-path
 typedef char DPTYPE;

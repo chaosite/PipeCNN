@@ -22,7 +22,7 @@ KERNEL_SRCS = ./device/conv_pipe.cl
 endif
 KERNEL_NAME = conv
 KERNEL_DEFS =
-KERNEL_INCS = 
+KERNEL_INCS =
 KERNEL_DEBUG = 1
 #additional pragma for xilinx
 CU_NUM = 1
@@ -44,16 +44,12 @@ ifeq ($(PLATFORM),x86)
 CXX := g++
 ifeq ($(USE_OPENCV),1)
 #add your OpenCV PATH here
-#OCV_INCLUDES = -I/usr/local/include/
-#OCV_LIBDIRS = -L/usr/local/lib 
 OCV_LIBS =  -lopencv_core -lopencv_imgcodecs -lopencv_imgproc -lopencv_highgui -lopencv_ml
 endif
 else ifeq ($(PLATFORM),arm32)
 CXX := $(CROSS-COMPILE)g++
 ifeq ($(USE_OPENCV),1)
 #add your cross compile OpenCV PATH here
-OCV_INCLUDES = -I/usr/local/opencv-arm/include/
-OCV_LIBDIRS = -L/usr/local/opencv-arm/lib 
 OCV_LIBS =  -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_ml
 endif
 endif
@@ -130,10 +126,12 @@ host: $(HOST_EXE)
 fpga: $(DEV_EXE)
 
 $(HOST_EXE): $(HOST_OBJS)
-	$(CXX) $(OCV_LIBDIRS) $(OCV_INCLUDES) $(HOST_OBJS) -o $@ $(LINK_CONFIG) $(OCV_LIBS)
-	
+	$(CXX) $(HOST_OBJS) -o $@ $(LINK_CONFIG) $(OCV_LIBS)
+
+host/main.o: host/layer_config.h
+
 %.o: %.cpp
-	$(CXX) $(OCV_LIBDIRS) $(OCV_INCLUDES) $(CXXFLAGS) -c $< -o $@ $(COMP_CONFIG) $(OCV_LIBS)
+	$(CXX) $(CXXFLAGS) -c $< -o $@ $(COMP_CONFIG) $(OCV_LIBS)
 
 $(DEV_EXE): $(KERNEL_SRCS)
 	$(OCC) $(OCCFLAGS) $< -o $@

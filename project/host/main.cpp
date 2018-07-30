@@ -59,7 +59,7 @@ const char *vendor_name = "Intel";
 
 #define IN_BUF_SIZE    256*256*64       // Note: the buffer size should be large enough to hold all temperary results
 #define OUT_BUF_SIZE   256*256*64
-#define FC_BUF_SIZE    32768*MAX_BATCH_SIZE
+#define FC_BUF_SIZE    32768*MAX_BATCH_SIZE*8
 
 #define MEAN_DATA_WIDTH   256
 #define MEAN_DATA_HEIGHT  256
@@ -86,8 +86,8 @@ float accuracy5 = 0;
 #define IMAGE_FILE_SIZE   (227*227*3)
 //#define WEIGHTS_FILE_SIZE 60965224 //fc8-1000
 #define WEIGHTS_FILE_SIZE 61063552      //fc8-1024
-#define LAYER_NUM         8
-#define CONV_NUM          5
+#define LAYER_NUM         2
+#define CONV_NUM          2
 const char *weight_file_path = "../data/data_alex/weights.dat";
 const char *input_file_path = "../data/data_alex/image.dat";
 const char *ref_file_path = "../data/data_alex/fc8.dat";
@@ -794,45 +794,49 @@ int main(int argc, char **argv)
             status =
                 clSetKernelArg(knl_memRd[i],
                                argi++,
-                               sizeof
-                               (cl_mem), &data_buf[i * input_config[batch_size]
-                                                   + k]);
+                               sizeof(cl_mem),
+                               &data_buf[i * input_config[batch_size] + k]);
             checkError(status,
                        "Failed to set argument %d of kernel memRd", argi - 1);
           } else if (layer_config[j][memrd_src] == 1) {
             status =
                 clSetKernelArg(knl_memRd[i],
                                argi++,
-                               sizeof
-                               (cl_mem),
-                               &output_buf[i * input_config[batch_size]
-                                           + k]);
+                               sizeof(cl_mem),
+                               &output_buf[i * input_config[batch_size] + k]);
             checkError(status,
                        "Failed to set argument %d of kernel memRd", argi - 1);
           } else if (layer_config[j][memrd_src] == 2) {
             status =
                 clSetKernelArg(knl_memRd[i],
-                               argi++, sizeof(cl_mem), &fc_1_buf[i]);
+                               argi++,
+                               sizeof(cl_mem),
+                               &fc_1_buf[i]);
             checkError(status,
                        "Failed to set argument %d of kernel memRd", argi - 1);
-          } else                // 3
-          {
+          } else { // 3
             status =
                 clSetKernelArg(knl_memRd[i],
-                               argi++, sizeof(cl_mem), &fc_2_buf[i]);
+                               argi++,
+                               sizeof(cl_mem),
+                               &fc_2_buf[i]);
             checkError(status,
                        "Failed to set argument %d of kernel memRd", argi - 1);
           }
 
           status =
-              clSetKernelArg(knl_memRd[i], argi++,
-                             sizeof(cl_mem), &weights_buf[i * LAYER_NUM + j]);
+              clSetKernelArg(knl_memRd[i],
+                             argi++,
+                             sizeof(cl_mem),
+                             &weights_buf[i * LAYER_NUM + j]);
           checkError(status,
                      "Failed to set argument %d kernel memRd", argi - 1);
 
           status =
-              clSetKernelArg(knl_memRd[i], argi++,
-                             sizeof(cl_mem), &bias_buf[i * LAYER_NUM + j]);
+              clSetKernelArg(knl_memRd[i],
+                             argi++,
+                             sizeof(cl_mem),
+                             &bias_buf[i * LAYER_NUM + j]);
           checkError(status,
                      "Failed to set argument %d kernel memRd", argi - 1);
 
@@ -1386,6 +1390,10 @@ void verifyResult(int num)
   // Show the picture
   substr = &synset_buf[max_label][10];
 
+  Mat output(Size(27, 27), CV_8UC3, output_reorder);
+  imshow("PipeCNN", output);
+  cvMoveWindow("PipeCNN", 0, 0);        //set the window's position
+  waitKey(10000);
 
   wordexp(picture_file_path, &p, WRDE_NOCMD);
   Mat img = imread(p.we_wordv[0]);
@@ -1482,15 +1490,14 @@ void loadImageToBuffer(int num)
       for (unsigned j = 0; j < layer_config[0][data_w]; j++) {
         for (unsigned k = 0; k < VEC_SIZE; k++) {
           if ((n * VEC_SIZE + k) < layer_config_original[0][data_n]) {  //  when layer_config[0][data_n] > layer_config_original[0][data_n], only copy valid pixels
-            data_init[n * VEC_SIZE * layer_config[0]
-                      [data_h] * layer_config[0]
-                      [data_w] + i * layer_config[0]
-                      [data_w] * VEC_SIZE + j * VEC_SIZE + k]
-                = (DTYPE)
-                image[(n * VEC_SIZE + k) * layer_config[0]
-                      [data_h] * layer_config[0]
-                      [data_w] + i * layer_config[0]
-                      [data_w] + j];
+            data_init[n * VEC_SIZE * layer_config[0][data_h]
+                      * layer_config[0][data_w]
+                      + i * layer_config[0][data_w] * VEC_SIZE
+                      + j * VEC_SIZE + k]
+                = (DTYPE) image[(n * VEC_SIZE + k) * layer_config[0][data_h]
+                                * layer_config[0][data_w]
+                                + i * layer_config[0][data_w]
+                                + j];
           }
         }
       }
@@ -1509,27 +1516,25 @@ void loadImageToBuffer(int num)
       // Load image data into buffers
       status =
           clEnqueueWriteBuffer(que_memRd[i],
-                               data_buf[i *
-                                        input_config
-                                        [batch_size] + j],
+                               data_buf[i * input_config[batch_size] + j],
                                CL_TRUE, 0,
                                (layer_config[0][data_w] *
                                 layer_config[0][data_h] *
                                 layer_config[0][data_n]) *
-                               sizeof(DTYPE), data_init, 0, NULL, NULL);
+                               sizeof(DTYPE),
+                               data_init, 0, NULL, NULL);
       checkError(status, "Failed to transfer input image");
 #else
       // Load image data into buffers
       status =
           clEnqueueWriteBuffer(que_memRd[i],
-                               data_buf[i *
-                                        input_config
-                                        [batch_size] + j],
+                               data_buf[i * input_config[batch_size] + j],
                                CL_TRUE, 0,
                                (layer_config[0][data_w] *
                                 layer_config[0][data_h] *
                                 layer_config[0][data_n]) *
-                               sizeof(DTYPE), data_init, 0, NULL, NULL);
+                               sizeof(DTYPE),
+                               data_init, 0, NULL, NULL);
       checkError(status, "Failed to transfer input image");
 #endif
     }
@@ -2004,16 +2009,16 @@ void extractOutput(DTYPE * output, DTYPE * output_one_item, unsigned item_num,
     for (unsigned i = 0; i < dim2; i++) {
       for (unsigned j = 0; j < dim1; j++) {
         for (unsigned vv = 0; vv < VEC_SIZE; vv++) {
-          output_one_item[k * dim2 * dim1 *
-                          VEC_SIZE + i * dim1 * VEC_SIZE + j * VEC_SIZE + vv]
-              = output[k * dim2 * dim1 *
-                       batch_size_in_dim *
-                       batch_size_in_dim *
-                       VEC_SIZE + (i +
-                                   batch_indx_dim2
-                                   * dim2) *
-                       batch_size_in_dim * dim1 *
-                       VEC_SIZE + (j + batch_indx_dim1 * dim1) * VEC_SIZE + vv];
+          output_one_item[k * dim2 * dim1 * VEC_SIZE
+                          + i * dim1 * VEC_SIZE
+                          + j * VEC_SIZE
+                          + vv]
+              = output[k * dim2 * dim1 * batch_size_in_dim * batch_size_in_dim *
+                       VEC_SIZE
+                       + (i + batch_indx_dim2 * dim2) * batch_size_in_dim
+                       * dim1 * VEC_SIZE
+                       + (j + batch_indx_dim1 * dim1) * VEC_SIZE
+                       + vv];
         }
       }
     }
@@ -2116,7 +2121,6 @@ void dumpResult()
 // Load image from files
 int load_picture(DTYPE * image)
 {
-
   float *mean_data;
   wordexp_t p;
   wordexp(picture_file_path, &p, WRDE_NOCMD);
