@@ -1,5 +1,5 @@
 #set source and target for host
-HOST_EXE  = run.exe
+HOST_EXE  = run
 HOST_SRCS = ./host/main.cpp ../common/ocl_util.cpp ../common/timer.cpp
 HOST_OBJS = $(HOST_SRCS:%.cpp=%.o)
 HOST_INCS = ../common
@@ -138,4 +138,4 @@ $(DEV_EXE): $(KERNEL_SRCS)
 
 .PHONY: clean
 clean:
-	rm -rf *.xclbin *.rpt *.xtxt *.json *.dir *.aocx *.aoco *.exe xocc* sdaccel* ./device/*.ll ./host/*.o ../common/*.o *.log *.jou *.mon
+	rm -rf *.xclbin *.rpt *.xtxt *.json *.dir *.aocx *.aoco *.exe xocc* sdaccel* ./device/*.ll ./host/*.o ../common/*.o *.log *.jou *.mon $(HOST_EXE) $(DEV_EXE) $(HOST_OBJS)

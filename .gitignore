@@ -1,0 +1,12 @@
+*.o
+*.aoco
+*.aocx
+*.aoclib
+data/
+project/conv/
+.emu_models/
+result_dump.txt
+__all_sources.cl
+Makefile.efisim
+efi_testbench.sv
+run
