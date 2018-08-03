@@ -14,6 +14,7 @@
 #include <wordexp.h>
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 
 #include <CL/opencl.h>
@@ -79,8 +80,8 @@ float accuracy5 = 0;
 #define IMAGE_FILE_SIZE   (227*227*3)
 //#define WEIGHTS_FILE_SIZE 60965224 //fc8-1000
 #define WEIGHTS_FILE_SIZE 61063552      //fc8-1024
-#define LAYER_NUM         2
-#define CONV_NUM          2
+#define LAYER_NUM         1
+#define CONV_NUM          1
 const char *weight_file_path = "../data/data_alex/weights.dat";
 const char *input_file_path = "../data/data_alex/image.dat";
 const char *ref_file_path = "../data/data_alex/fc8.dat";
@@ -102,20 +103,18 @@ const char *dump_file_path = "./result_dump.txt";
 */
 
 // Configuration file instructions
+
 enum config_item {
-  layer_type,                   // "0" -> conv, "1" -> fc
-
-  data_w, data_h, data_n, weight_w, weight_h, weight_n, weight_m, bias_size,    //memRd Parameters
-
-  memrd_src,                    //"0"-> data_buf  "1"-> output_buf  "2"->"fc_1_buffer"  "3"->"fc_2_buffer"
-
-  conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,     //Conv Parameters
-
-  pool_on, pool_x, pool_y, pool_z, pool_size, pool_stride,      // Pooling Parameters
-
-  lrn_on,                       // lrn on/off control
-
-  memwr_dst                     //"0"-> data_buf  "1"-> output_buf  "2"->"fc_1_buffer"  "3"->"fc_2_buffer"
+  layer_type, // "0" -> conv, "1" -> fc
+  // memRd params
+  data_w, data_h, data_n, weight_w, weight_h, weight_n, weight_m, bias_size,
+  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  // Convolution params
+  conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,
+  // Pooling params
+  pool_on, pool_x, pool_y, pool_z, pool_size, pool_stride,
+  lrn_on, // lrn on/off control
+  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
 };
 
 enum input_item {
@@ -186,7 +185,7 @@ void loadImageToBuffer(int num);
 int prepare();
 void readDataBack();
 void verifyResult(int num);
-void dumpResult();
+void dumpResult(bool, bool);
 void reorderWeights(DTYPE * weights, DTYPE * weight_buf, unsigned dim1,
                     unsigned dim2, unsigned dim3, unsigned dim4,
                     unsigned dim3_original, unsigned dim4_original,
@@ -1138,19 +1137,19 @@ void readDataBack()
   // Item num start from 0
   unsigned batch_item_num = 0;
   if (batch_item_num > (input_config[batch_size] - 1)) {
-    printf
-        ("Error: wrong configuration，can't verify the item since it is layer than batch size !!!\n\n");
+    printf("Error: wrong configuration can't verify the item since it is larger"
+           " than batch size!!!\n\n");
   }
 
   if (LAYER_NUM < CONV_NUM) {   // verify conv results
     read_buf_size =
-        output_config[output_w] * output_config[output_h] *
-        output_config[output_n];
+      output_config[output_w] * output_config[output_h] *
+      output_config[output_n];
 
   } else                        // verify the last conv and all fc results
     read_buf_size =
-        output_config[output_w] * output_config[output_h] *
-        output_config[output_n] * input_config[batch_size];
+      output_config[output_w] * output_config[output_h] *
+      output_config[output_n] * input_config[batch_size];
 
   // For the last conv layer and all fc layers, read result from one of the fc buffers
   if (layer_config[LAYER_NUM - 1][memwr_dst] == 2) {
@@ -1165,16 +1164,15 @@ void readDataBack()
                                  0, sizeof(DTYPE) * read_buf_size,
                                  (void *)output, 0, NULL, &finish_event[0]);
     checkError(status, "Failed to set transfer output data");
-  }
-  // For other layers, read results from data and output buffers
+  } // For other layers, read results from data and output buffers
   else if (layer_config[LAYER_NUM - 1][memwr_dst] ^ layer_config[LAYER_NUM - 1][lrn_on]) {      // if lrn is used, the mem dst is changed back to src
-    printf("\nCopyed one result from NO.%d output buffers.\n", batch_item_num);
+    printf("\nCopied one result from No.%d output buffers.\n", batch_item_num);
     status = clEnqueueReadBuffer(que_memWr[0], output_buf[batch_item_num], CL_FALSE,    // read from device0
                                  0, sizeof(DTYPE) * read_buf_size,
                                  (void *)output, 0, NULL, &finish_event[0]);
     checkError(status, "Failed to set transfer output data");
   } else {
-    printf("\nCopyed one results from NO.%d data buffers.\n", batch_item_num);
+    printf("\nCopied one results from No.%d data buffers.\n", batch_item_num);
     status = clEnqueueReadBuffer(que_memWr[0], data_buf[batch_item_num], CL_FALSE,      // read from device0
                                  0, sizeof(DTYPE) * read_buf_size,
                                  (void *)output, 0, NULL, &finish_event[0]);
@@ -1222,7 +1220,8 @@ void verifyResult(int num)
   // Show the picture
   substr = &synset_buf[max_label][10];
 
-  Mat output(Size(27, 27), CV_8UC3, output_reorder);
+  Mat output(Size(output_config[0], output_config[1]), CV_8UC3, output_reorder);
+
   imshow("PipeCNN", output);
   cvMoveWindow("PipeCNN", 0, 0);        //set the window's position
   waitKey(10000);
@@ -1241,6 +1240,7 @@ void verifyResult(int num)
     printf("False: True_label = %d Inferred_label = %d\n\n",
            label[num], max_label);
   }
+  dumpResult(false, true);
   imshow("PipeCNN", img);
   cvMoveWindow("PipeCNN", 0, 0);        //set the window's position
   waitKey(600);
@@ -1454,8 +1454,8 @@ int prepare()
             layer_config_original[ll][conv_stride] + 1)
         || (layer_config_original[ll][conv_z] !=
             layer_config_original[ll][weight_m])) {
-      printf
-          ("\nError: incorrect setting of convolution output size or filter params for layer-%d!!!\n",
+      printf("\nError: incorrect setting of convolution output size/filter "
+             "params for layer %d!!!\n",
            ll + 1);
       return 1;
     }
@@ -1902,25 +1902,54 @@ int getProb(DTYPE * output)
 
 }
 
-void dumpResult()
+void dumpResult(bool showGoldenRef = true, bool showInput = false)
 {
   ofstream result_file;
-
   result_file.open(dump_file_path, ios::out);
 
+  result_file << "z: 0-" << output_config[output_n] << " ";
+  result_file << "x: 0-" << output_config[output_h] << " ";
+  result_file << "y: 0-" << output_config[output_w] << endl;
+
+
+  if (showInput) {
+    result_file << endl << "Input image:" << endl << "============" << endl << endl;
+    for (unsigned i = 0; i < input_config[image_n]; i++) {
+      result_file << "z=" << setw(2) << hex << i << endl;
+      for (unsigned j = 0; j < input_config[image_h]; j++) {
+        result_file << "x=" << setw(2) << j << ": ";
+        for (unsigned k = 0; k < input_config[image_w]; k++) {
+          result_file
+            << hex << setw(4) << setfill('0')
+            << (unsigned short) data_init[input_config[image_w] *
+                                          input_config[image_h] * i +
+                                          input_config[image_w] * j + k]
+            << " ";
+        }
+        result_file << endl;
+      }
+      result_file << endl;
+    }
+  }
+
+  result_file << endl << "Output image:" << endl << "============" << endl << endl;
   for (unsigned i = 0; i < output_config[output_n]; i++) {
-    result_file << "z=" << i << endl;
+    result_file << "z=" << setw(2) << hex << i << endl;
     for (unsigned j = 0; j < output_config[output_h]; j++) {
-      result_file << "x=" << j << ": ";
+      result_file << "x=" << setw(2) << j << ": ";
       for (unsigned k = 0; k < output_config[output_w]; k++) {
-        result_file << (float)
-            output_reorder[output_config[output_w] *
-                           output_config[output_h] * i +
-                           output_config[output_w] * j + k] << "(";
-        result_file << (float)
+        result_file
+          << hex << setw(4) << setfill('0')
+          << (unsigned short) output_reorder[output_config[output_w] *
+                                             output_config[output_h] * i +
+                                             output_config[output_w] * j + k];
+        if (showGoldenRef)
+          result_file << "(" << (float)
             golden_ref[output_config[output_w] *
                        output_config[output_h] * i +
                        output_config[output_w] * j + k] << ") ";
+        else
+          result_file << " ";
       }
       result_file << endl;
     }

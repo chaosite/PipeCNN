@@ -329,7 +329,7 @@ char precision_config[][3] ={{7,  0, -2}//Layer-1
 							};
 */
 
-#ifdef ALEXNET
+#if 0
 // Test with batch=1
 // Alexnet Configuration
 unsigned layer_config[][NUM_CONFIG_ITEM] =
@@ -401,7 +401,7 @@ char precision_config[][3] ={{8,  0, -4},//Layer-1
                              {10,  2,  2}//Layer-8
 };
 
-unsigned input_config[5] = {227, 227, 3, 1}; //original image size(dim1, dim2, dim3), batch size
+//unsigned input_config[5] = {227, 227, 3, 1}; //original image size(dim1, dim2, dim3), batch size
 
 //unsigned output_config[3] = {27, 27, 96};//Layer-1
 //unsigned output_config[3] = {55, 55, 96};//Layer-1
@@ -416,28 +416,51 @@ unsigned output_config[3] = {1, 1, 1024};//Layer-8  Note: only one result is ext
 
 #endif
 
+#if 0
+
+enum config_item {
+  layer_type, // "0" -> conv, "1" -> fc
+  // memRd params
+  data_w, data_h, data_n, weight_w, weight_h, weight_n, weight_m, bias_size,
+  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  // Convolution params
+  conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,
+  // Pooling params
+  pool_on, pool_x, pool_y, pool_z, pool_size, pool_stride,
+  lrn_on, // lrn on/off control
+  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+};
+#endif
+
 unsigned layer_config[][NUM_CONFIG_ITEM] =
     {{0,
       227, 227, 3, 11, 11, 3, 96, 96,
       0,
       55, 55, 96, 4, 0, 0, 1,
-      0, 27, 27, 96, 3, 2,
+      1, 27, 27, 96, 3, 2,
       1,
-      1}, // Layer-1
-     {0,
-      55, 55, 96, 5, 5, 48, 256, 256,
+      1},//Layer-1
+     {1,
+      120, 120, 96, 5, 5, 48, 96, 96,
       1,
-      27, 27, 256, 1, 2, 1, 1,
+      120, 120, 96, 1, 2, 1, 1,
       0, 13, 13, 256, 3, 2,
-      1,
+      0,
       2}, // Layer-2
+     {0,
+      120, 120, 96, 1, 1, 16, 3, 3,
+      3,
+      120, 120, 3, 1, 0, 0, 1,
+      0, 1, 1, 3, 0, 0,
+      0,
+      2}, // Layer-3 fc
     };
 
 char precision_config[][3] ={{8,  0, -4},//Layer-1
                              {8,  0, -2},//Layer-2
 };
 unsigned input_config[5] = {227, 227, 3, 1};  //original image size(dim1, dim2, dim3), batch size
-unsigned output_config[3] = {27, 27, 3}; //Layer-8  Note: only one result is extracted and verified
+unsigned output_config[3] = {55, 55, 96}; //Layer-8  Note: only one result is extracted and verified
 
 
 /*
