@@ -70,6 +70,10 @@ typedef struct {
 
 channel channel_vec data_ch __attribute__ ((depth(0)));
 channel channel_vec weight_ch __attribute__ ((depth(0)));
+channel channel_vec bn_mean_ch __attribute__ ((depth(0)));
+channel channel_vec bn_var_ch __attribute__ ((depth(0)));
+channel channel_scal bn_weight_ch __attribute__ ((depth(0)));
+channel channel_scal bn_bias_ch __attribute__ ((depth(0)));
 channel channel_scal bias_ch __attribute__ ((depth(8)));
 channel channel_scal conv_ch __attribute__ ((depth(CHN_DEPTH)));
 channel channel_scal pool_ch __attribute__ ((depth(CHN_DEPTH)));
@@ -125,7 +129,11 @@ void memRead(
               // Data Ports
               __global lane_data * restrict bottom,
               __global channel_vec * restrict weights,
-              __global channel_scal * restrict bias)
+              __global channel_scal * restrict bias,
+              __global channel_scal * restrict bn_weight,
+              __global channel_scal * restrict bn_bias,
+              __global channel_vec * restrict bn_mean,
+              __global channel_vec * restrict bn_var)
 {
 
   // Input Data, Weights and Bias
@@ -133,6 +141,13 @@ void memRead(
   channel_vec data_ch_vec;
   channel_vec weight_ch_vec;
   channel_scal bias_ch_in;
+
+  // For batch-normalization
+  channel_scal bn_weight_in = *bn_weight;
+  channel_scal bn_bias_in = *bn_bias;
+  channel_vec bn_mean_vec;
+  channel_vec bn_var_vec;
+
   ushort data_offset = 0;       // assuming the 1st layer is not in split
 
   // virtual loop counters
@@ -156,6 +171,10 @@ void memRead(
   __local lane_data win_buffer[2][WIN_BUF_SIZE];        // working sequence 0->1->0->1 ...
   // Weight buffer
   __local channel_vec weight_buffer[WEIGHT_BUF_SIZE];
+
+  // BN Stuff
+  __local channel_vec bn_mean_buffer[WEIGHT_BUF_SIZE];
+  __local channel_vec bn_var_buffer[WEIGHT_BUF_SIZE];
 
   // Initialize the winbuf with the data in the first iteration of the group looping (as gp_num_x_winbuf=0, gp_num_y_winbuf=0)
   for (unsigned short win_itm_z = 0; win_itm_z < weight_dim3 / VEC_SIZE;
@@ -221,7 +240,7 @@ void memRead(
     output_idx_dim1 = 0;
     output_idx_dim2 = 0;
     output_idx_dim3 = 0;
-    // reset in-group item counters 
+    // reset in-group item counters
     gp_item_idx_x = 0;
 
     // reset input winbuffer loop counters
@@ -303,6 +322,8 @@ void memRead(
                       output_idx_dim2 * weight_dim1 + output_idx_dim1] =
             weight_ch_vec;
 
+        bn_mean_vec =
+            bn_mean[out_idx_z * weight
       }
       // In this version, grouping is only performed in row (x) direction
       if (gp_num_x * CONV_GP_SIZE_X + gp_item_idx_x < conv_x) {
@@ -389,13 +410,16 @@ void memRead(
       gp_num_x_winbuf++;
 
     // used as virtual group loop counters
-    if ((out_idx_z == weight_dim4_div_lane - 1) && (gp_num_y == group_num_y - 1)
+    if ((out_idx_z == weight_dim4_div_lane - 1)
+        && (gp_num_y == group_num_y - 1)
         && (gp_num_x == group_num_x - 1))
       out_idx_z = 0;
-    else if ((gp_num_y == group_num_y - 1) && (gp_num_x == group_num_x - 1))
+    else if ((gp_num_y == group_num_y - 1)
+             && (gp_num_x == group_num_x - 1))
       out_idx_z++;
 
-    if ((gp_num_y == group_num_y - 1) && (gp_num_x == group_num_x - 1))
+    if ((gp_num_y == group_num_y - 1)
+        && (gp_num_x == group_num_x - 1))
       gp_num_y = 0;
     else if (gp_num_x == group_num_x - 1)
       gp_num_y++;
@@ -411,16 +435,20 @@ void memRead(
 }
 
 __kernel __attribute__ ((task))
-    __attribute__ ((max_global_work_dim(0)))
+__attribute__ ((max_global_work_dim(0)))
 void coreConv(
                // Params Ports
-               uint output_num, uint conv_loop_cnt, uint contol,        //[0]-> relu  [1]->bypass pooling
+               uint output_num, uint conv_loop_cnt, uint control, // 0x1 = relu 0x2 = bypass pooling 0x4 = bypass batchnorm
                char frac_w, char frac_din, char frac_dout)
 {
   channel_vec mac_data;
   channel_vec mac_weight;
+  channel_vec bn_mean;
+  channel_vec bn_var;
   channel_scal bias_ch_out;
   channel_scal conv_ch_in;
+  channel_scal bn_bias_ch_out;
+  channel_scal bn_weight_ch_out;
   DPTYPE bias[LANE_NUM];
   MACTYPE conv_out[LANE_NUM];
   MACTYPE lane_accum[LANE_NUM];
@@ -430,10 +458,15 @@ void coreConv(
   MACTYPE conv_sum_bias[LANE_NUM];
   DPTYPE conv_final[LANE_NUM];
 
+  bn_bias_ch_out = read_channel_altera(bn_bias_ch);
+  bn_weight_ch_out = read_channel_altera(bn_weight_ch);
+
   // each iteration generates one output
   for (unsigned int k = 0; k < output_num; k++) {
 
     bias_ch_out = read_channel_altera(bias_ch);
+    bn_mean = read_channel_altera(bn_mean_ch);
+    bn_var = read_channel_altera(bn_var_ch);
 
 #pragma unroll
     for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
@@ -503,8 +536,17 @@ void coreConv(
 
       conv_final[ll] = MASK8B & (conv_sum_bias[ll] >> 0x01);
 
+      // BatchNorm operation
+      if ((control & 0x04) == 0x04) {
+          conv_final[ll] = (conv_final[ll] - bn_mean.lane[ll])
+              * native_rsqrt(((float)bn_var.lane[ll]) + 1E-05)
+              * bn_weight + bn_bias;
+      }
+
+      // Shortcut add.
+      
       // Relu operation
-      if ((contol & 0x01) == 0x01) {
+      if ((control & 0x01) == 0x01) {
         if ((conv_final[ll] & MASKSIGN) == MASKSIGN)
           conv_ch_in.lane[ll] = 0;
         else
@@ -522,16 +564,13 @@ void coreConv(
 
     }
 
-    // write convoluation results
-    if ((contol & 0x02) == 0x02)
-      //by-pass pooling
-      write_channel_altera(bypass_ch, conv_ch_in);
-    else                        // to pooling kernel
+    // write convolution results
+    if ((control & 0x02) == 0x02) // bypass pooling
+        write_channel_altera(bypass_ch, conv_ch_in);
+    else // to pooling kernel
       write_channel_altera(conv_ch, conv_ch_in);
     //printf("Write channel item-%d is written in channel %d...\n", k, ll);
-
-  }                             // end of output loop
-
+  } // end of output loop
 }
 
 __kernel __attribute__ ((task))
