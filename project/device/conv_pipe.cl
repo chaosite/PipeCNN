@@ -70,10 +70,8 @@ typedef struct {
 
 channel channel_vec data_ch __attribute__ ((depth(0)));
 channel channel_vec weight_ch __attribute__ ((depth(0)));
-channel channel_vec bn_mean_ch __attribute__ ((depth(0)));
-channel channel_vec bn_var_ch __attribute__ ((depth(0)));
-channel channel_scal bn_weight_ch __attribute__ ((depth(0)));
-channel channel_scal bn_bias_ch __attribute__ ((depth(0)));
+channel channel_scal bn_add_ch __attribute__ ((depth(8)));
+channel channel_scal bn_mult_ch __attribute__ ((depth(8)));
 channel channel_scal bias_ch __attribute__ ((depth(8)));
 channel channel_scal conv_ch __attribute__ ((depth(CHN_DEPTH)));
 channel channel_scal pool_ch __attribute__ ((depth(CHN_DEPTH)));
@@ -130,10 +128,8 @@ void memRead(
               __global lane_data * restrict bottom,
               __global channel_vec * restrict weights,
               __global channel_scal * restrict bias,
-              __global channel_scal * restrict bn_weight,
-              __global channel_scal * restrict bn_bias,
-              __global channel_vec * restrict bn_mean,
-              __global channel_vec * restrict bn_var)
+              __global channel_scal * restrict bn_mult,
+              __global channel_scal * restrict bn_add)
 {
 
   // Input Data, Weights and Bias
@@ -143,10 +139,8 @@ void memRead(
   channel_scal bias_ch_in;
 
   // For batch-normalization
-  channel_scal bn_weight_in = *bn_weight;
-  channel_scal bn_bias_in = *bn_bias;
-  channel_vec bn_mean_vec;
-  channel_vec bn_var_vec;
+  channel_scal bn_mult_in;
+  channel_scal bn_add_in;
 
   ushort data_offset = 0;       // assuming the 1st layer is not in split
 
@@ -322,8 +316,6 @@ void memRead(
                       output_idx_dim2 * weight_dim1 + output_idx_dim1] =
             weight_ch_vec;
 
-        bn_mean_vec =
-            bn_mean[out_idx_z * weight
       }
       // In this version, grouping is only performed in row (x) direction
       if (gp_num_x * CONV_GP_SIZE_X + gp_item_idx_x < conv_x) {
@@ -332,6 +324,13 @@ void memRead(
             && output_idx_dim3 == 0) {
           bias_ch_in = bias[out_idx_z];
           write_channel_altera(bias_ch, bias_ch_in);
+
+          bn_mult_in = bn_mult[out_idx_z];
+          write_channel_altera(bn_mult_ch, bn_mult_in);
+
+          bn_add_in = bn_add[out_idx_z];
+          write_channel_altera(bn_add_ch, bn_add_in);
+
           //#ifdef DEBUG_MEMRD
           //printf("work-item x=%d, y=%d, z=%d, channel =0, write bias=%f\n", output_idx_dim1, output_idx_dim2, output_idx_dim3, bias_ch_in.lane[0]);
           //#endif
@@ -339,9 +338,8 @@ void memRead(
         // data
         data_vec =
             win_buffer[flag][output_idx_dim3 * win_size_y * win_size_x +
-                             output_idx_dim2 * win_size_x + (output_idx_dim1 +
-                                                             gp_item_idx_x *
-                                                             stride)];
+                             output_idx_dim2 * win_size_x +
+                             (output_idx_dim1 + gp_item_idx_x * stride)];
 #pragma unroll
         for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
           data_ch_vec.lane[ll] = data_vec;
@@ -443,12 +441,10 @@ void coreConv(
 {
   channel_vec mac_data;
   channel_vec mac_weight;
-  channel_vec bn_mean;
-  channel_vec bn_var;
   channel_scal bias_ch_out;
   channel_scal conv_ch_in;
-  channel_scal bn_bias_ch_out;
-  channel_scal bn_weight_ch_out;
+  channel_scal bn_add_ch_out;
+  channel_scal bn_mult_ch_out;
   DPTYPE bias[LANE_NUM];
   MACTYPE conv_out[LANE_NUM];
   MACTYPE lane_accum[LANE_NUM];
@@ -458,15 +454,12 @@ void coreConv(
   MACTYPE conv_sum_bias[LANE_NUM];
   DPTYPE conv_final[LANE_NUM];
 
-  bn_bias_ch_out = read_channel_altera(bn_bias_ch);
-  bn_weight_ch_out = read_channel_altera(bn_weight_ch);
-
   // each iteration generates one output
   for (unsigned int k = 0; k < output_num; k++) {
 
     bias_ch_out = read_channel_altera(bias_ch);
-    bn_mean = read_channel_altera(bn_mean_ch);
-    bn_var = read_channel_altera(bn_var_ch);
+    bn_add_ch_out = read_channel_altera(bn_add_ch);
+    bn_mult_ch_out = read_channel_altera(bn_mult_ch);
 
 #pragma unroll
     for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
@@ -534,17 +527,18 @@ void coreConv(
             (MASK9B & conv_with_rnd_bit[ll]) +
             (bias[ll] >> (frac_w - frac_dout - 1)) + 0x01;
 
-      conv_final[ll] = MASK8B & (conv_sum_bias[ll] >> 0x01);
-
       // BatchNorm operation
       if ((control & 0x04) == 0x04) {
-          conv_final[ll] = (conv_final[ll] - bn_mean.lane[ll])
-              * native_rsqrt(((float)bn_var.lane[ll]) + 1E-05)
-              * bn_weight + bn_bias;
+          conv_sum_bias[ll] = conv_sum_bias[ll] * bn_mult_ch_out.lane[ll]
+              + bn_add_ch_out.lane[ll];
       }
 
       // Shortcut add.
-      
+
+
+      conv_final[ll] = MASK8B & (conv_sum_bias[ll] >> 0x01);
+
+
       // Relu operation
       if ((control & 0x01) == 0x01) {
         if ((conv_final[ll] & MASKSIGN) == MASKSIGN)
@@ -632,9 +626,9 @@ void maxPool(
     }
 
 #ifdef DEBUG_POOL
-    printf
-        ("Maxpool input_num=%d, line_buf_ptr=%d, row_pool_cnt=%d, col_pool_cnt=%d\n",
-         k, line_buf_ptr, row_pool_cnt, col_pool_cnt);
+    printf("Maxpool input_num=%d, line_buf_ptr=%d, "
+           "row_pool_cnt=%d, col_pool_cnt=%d\n",
+           k, line_buf_ptr, row_pool_cnt, col_pool_cnt);
     printf("        row_cnt=%d\n", row_cnt);
 #endif
 

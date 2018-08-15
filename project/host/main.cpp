@@ -146,22 +146,25 @@ cl_uint num_devices = 0;
 cl_platform_id platform_id = NULL;
 cl_context context = NULL;
 cl_program program = NULL;
-scoped_array < cl_device_id > device;
-scoped_array < cl_kernel > knl_memRd;
-scoped_array < cl_kernel > knl_conv;
-scoped_array < cl_kernel > knl_memWr;
-scoped_array < cl_kernel > knl_pool;
-scoped_array < cl_kernel > knl_lrn;
-scoped_array < cl_command_queue > que_memRd;
-scoped_array < cl_command_queue > que_conv;
-scoped_array < cl_command_queue > que_memWr;
-scoped_array < cl_command_queue > que_pool;
-scoped_array < cl_mem > data_buf;
-scoped_array < cl_mem > output_buf;
-scoped_array < cl_mem > weights_buf;
-scoped_array < cl_mem > bias_buf;
-scoped_array < cl_mem > fc_1_buf;
-scoped_array < cl_mem > fc_2_buf;
+scoped_array<cl_device_id> device;
+scoped_array<cl_kernel> knl_memRd;
+scoped_array<cl_kernel> knl_conv;
+scoped_array<cl_kernel> knl_memWr;
+scoped_array<cl_kernel> knl_pool;
+scoped_array<cl_kernel> knl_lrn;
+scoped_array<cl_command_queue> que_memRd;
+scoped_array<cl_command_queue> que_conv;
+scoped_array<cl_command_queue> que_memWr;
+scoped_array<cl_command_queue> que_pool;
+scoped_array<cl_mem> data_buf;
+scoped_array<cl_mem> output_buf;
+scoped_array<cl_mem> output2_buf;
+scoped_array<cl_mem> weights_buf;
+scoped_array<cl_mem> bias_buf;
+scoped_array<cl_mem> bn_mult_buf;
+scoped_array<cl_mem> bn_add_buf;
+scoped_array<cl_mem> fc_1_buf;
+scoped_array<cl_mem> fc_2_buf;
 
 DTYPE *weights;
 DTYPE *image;
@@ -275,11 +278,16 @@ int main(int argc, char **argv)
   knl_pool.reset(num_devices);
   knl_lrn.reset(num_devices);
   // For each layer a group of buffers are created to store the weights and bias
+  // and parameters for batchnorm
   weights_buf.reset(num_devices * LAYER_NUM);
   bias_buf.reset(num_devices * LAYER_NUM);
-  // Two buffers (data and output) are used as ping-pong buffers for conv layers
+  bn_mult_buf.reset(num_devices * LAYER_NUM);
+  bn_add_buf.reset(num_devices * LAYER_NUM);
+  // Three buffers (data, output, output2) are used as ping-pong buffers for
+  // conv layers
   data_buf.reset(num_devices * MAX_BATCH_SIZE);
   output_buf.reset(num_devices * MAX_BATCH_SIZE);
+  output2_buf.reset(num_devices * MAX_BATCH_SIZE);
   // Two buffers are used as ping-pong buffers for fc layers
   fc_1_buf.reset(num_devices);
   fc_2_buf.reset(num_devices);
@@ -347,6 +355,19 @@ int main(int argc, char **argv)
                          sizeof(DTYPE), NULL, &status);
       checkError(status, "Failed to create buffer for bias in layer");
 
+      // Batch normalization buffers for each layer
+      bn_mult_buf[i * LAYER_NUM + j] =
+          clCreateBuffer(context, CL_MEM_READ_ONLY,
+                         layer_config[j][bias_size] *
+                         sizeof(DTYPE), NULL, &status);
+      checkError(status, "Failed to create buffer for bn_mult in layer");
+
+      bn_add_buf[i * LAYER_NUM + j] =
+          clCreateBuffer(context, CL_MEM_READ_ONLY,
+                         layer_config[j][bias_size] *
+                         sizeof(DTYPE), NULL, &status);
+      checkError(status, "Failed to create buffer for bn_add in layer");
+
       // Initializing all weights buffers, blocking write is used
       status =
           clEnqueueWriteBuffer(que_memRd[i],
@@ -379,6 +400,13 @@ int main(int argc, char **argv)
           clCreateBuffer(context, CL_MEM_READ_WRITE,
                          OUT_BUF_SIZE * sizeof(DTYPE), NULL, &status);
       checkError(status, "Failed to create buffer for output");
+
+      // Output2 results buffers
+      output2_buf[i * input_config[batch_size] + j] =
+          clCreateBuffer(context, CL_MEM_READ_WRITE,
+                         OUT_BUF_SIZE * sizeof(DTYPE), NULL, &status);
+      checkError(status, "Failed to create buffer for output");
+
     }
     // Allocate fc buffers
     fc_1_buf[i] =
@@ -654,10 +682,18 @@ int main(int argc, char **argv)
                 clSetKernelArg(knl_memRd[i],
                                argi++,
                                sizeof(cl_mem),
+                               &output2_buf[i * input_config[batch_size] + k]);
+            checkError(status,
+                       "Failed to set argument %d of kernel memRd", argi - 1);
+          }else if (layer_config[j][memrd_src] == 3) {
+            status =
+                clSetKernelArg(knl_memRd[i],
+                               argi++,
+                               sizeof(cl_mem),
                                &fc_1_buf[i]);
             checkError(status,
                        "Failed to set argument %d of kernel memRd", argi - 1);
-          } else { // 3
+          } else { // 4
             status =
                 clSetKernelArg(knl_memRd[i],
                                argi++,
@@ -884,11 +920,20 @@ int main(int argc, char **argv)
           } else if (layer_config[j][memwr_dst] == 2) {
             status =
                 clSetKernelArg(knl_memWr[i],
+                               argi++,
+                               sizeof
+                               (cl_mem),
+                               &output2_buf[i * input_config[batch_size]
+                                           + k]);
+            checkError(status,
+                       "Failed to set argument %d of kernel memWr", argi - 1);
+          } else if (layer_config[j][memwr_dst] == 3) {
+            status =
+                clSetKernelArg(knl_memWr[i],
                                argi++, sizeof(cl_mem), &fc_1_buf[i]);
             checkError(status,
                        "Failed to set argument %d of kernel memWr", argi - 1);
-          } else                // 3
-          {
+          } else { // 4
             status =
                 clSetKernelArg(knl_memWr[i],
                                argi++, sizeof(cl_mem), &fc_2_buf[i]);
@@ -1687,7 +1732,7 @@ int prepare()
                    padding_offset[j], VEC_SIZE, LANE_NUM);
     ptr +=
         layer_config[j][weight_w] * layer_config[j][weight_h] *
-        layer_config_original[j][weight_n] * layer_config_original[j][weight_m];
+        layer_config_original[j][weight_n] * layer_config_original[j][weight_m] * sizeof(DTYPE);
     reorderBias(weights, bias_conv[j], ptr, padding_offset[j],
                 layer_config[j][bias_size],
                 layer_config_original[j][bias_size], LANE_NUM);
@@ -1719,39 +1764,40 @@ void reorderWeights(DTYPE * weights, DTYPE * weight_buf, unsigned dim1,
     for (unsigned n = 0; n < dim3_original; n++) {
       for (unsigned i = 0; i < dim2; i++) {
         for (unsigned j = 0; j < dim1; j++) {
-          copy_with_padding[(padding_offset *
-                             dim1 * dim2 * dim3) +
-                            m * dim1 * dim2 *
-                            dim3 + n * dim1 * dim2 + i * dim1 + j]
+          copy_with_padding[(padding_offset * dim1 * dim2 * dim3) +
+                            m * dim1 * dim2 * dim3 +
+                            n * dim1 * dim2 +
+                            i * dim1 +
+                            j]
               = (DTYPE) weights[offset +
-                                m * dim1 * dim2 *
-                                dim3_original + n * dim1 * dim2 + i * dim1 + j];
+                                m * dim1 * dim2 * dim3_original +
+                                n * dim1 * dim2 +
+                                i * dim1 +
+                                j];
         }
       }
     }
   }
 
-  // Second, perform vectorization in dim3 by VEC_SIZE and at the same time, perform vectorization in dim4 by a factor of LANE_NUM
+  // Second, perform vectorization in dim3 by VEC_SIZE and at the same time,
+  // perform vectorization in dim4 by a factor of LANE_NUM
   for (unsigned m = 0; m < (dim4 / laneNum); m++) {
     for (unsigned n = 0; n < (dim3 / vecSize); n++) {
       for (unsigned i = 0; i < dim2; i++) {
         for (unsigned j = 0; j < dim1; j++) {
           for (unsigned ll = 0; ll < laneNum; ll++) {
             for (unsigned k = 0; k < vecSize; k++) {
-              weight_buf[m * dim1 *
-                         dim2 * dim3 *
-                         laneNum +
-                         n * dim1 *
-                         dim2 *
-                         vecSize *
-                         laneNum +
-                         i * dim1 *
-                         vecSize *
-                         laneNum + j * vecSize * laneNum + ll * vecSize + k]
+              weight_buf[m * dim1 * dim2 * dim3 * laneNum +
+                         n * dim1 * dim2 * vecSize * laneNum +
+                         i * dim1 * vecSize * laneNum +
+                         j * vecSize * laneNum +
+                         ll * vecSize +
+                         k]
                   = (DTYPE)
-                  copy_with_padding[(m * laneNum + ll)
-                                    * dim3 * dim2 * dim1 + (n * vecSize + k)
-                                    * dim1 * dim2 + i * dim1 + j];
+                  copy_with_padding[(m * laneNum + ll) * dim3 * dim2 * dim1 +
+                                    (n * vecSize + k) * dim1 * dim2 +
+                                    i * dim1 +
+                                    j];
             }
           }
         }
