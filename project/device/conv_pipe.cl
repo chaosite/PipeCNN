@@ -51,6 +51,7 @@
 
 // Define the precision of the data-path
 typedef char DPTYPE;
+typedef short DP2TYPE;
 typedef int MACTYPE;
 
 // Vectorized data type
@@ -67,6 +68,10 @@ typedef struct {
 typedef struct {
   DPTYPE lane[LANE_NUM];
 } channel_scal;
+
+typedef struct {
+  DP2TYPE lane[LANE_NUM];
+} chanell_scal2;
 
 channel channel_vec data_ch __attribute__ ((depth(0)));
 channel channel_vec weight_ch __attribute__ ((depth(0)));
@@ -107,6 +112,11 @@ DPTYPE pool_max(DPTYPE a_in, DPTYPE b_in)
 
   return max_value;
 
+}
+
+DP2TYPE pool_add(DP2TYPE a_in, DP2TYPE b_in)
+{
+    return ((DP2TYPE) a_in) + b_in;
 }
 
 // Fetch Data from Global Memory
@@ -434,8 +444,7 @@ void memRead(
 
 __kernel __attribute__ ((task))
 __attribute__ ((max_global_work_dim(0)))
-void coreConv(
-               // Params Ports
+void coreConv( // Params Ports
                uint output_num, uint conv_loop_cnt, uint control, // 0x1 = relu 0x2 = bypass pooling 0x4 = bypass batchnorm
                char frac_w, char frac_din, char frac_dout)
 {
@@ -568,7 +577,7 @@ void coreConv(
 }
 
 __kernel __attribute__ ((task))
-void maxPool(
+void avgPool(
               // Params Ports
               uint input_num, uchar line_size,  // line_size should be no larger than POOL_LBUF_DEPTH
               uchar pool_size,  // by now, only pooling size no larger than 3
@@ -576,16 +585,18 @@ void maxPool(
 {
   channel_scal conv_ch_out;
   channel_scal pool_final;
+  channel_scal pool_finaler;
 
   DPTYPE line_buf_0[LANE_NUM][POOL_LBUF_DEPTH];
   DPTYPE line_buf_1[LANE_NUM][POOL_LBUF_DEPTH];
+  DPTYPE line_buf_2[LANE_NUM][POOL_LBUF_DEPTH];
   uchar line_buf_ptr;
   uchar col_pool_cnt;
   uchar row_pool_cnt;
   uchar row_cnt;
-  DPTYPE row_pool_reg[LANE_NUM];
-  DPTYPE col_pool_reg[LANE_NUM];
-  DPTYPE pool_reg[LANE_NUM][POOL_MAX_SIZE];
+  DP2TYPE row_pool_reg[LANE_NUM];
+  DP2TYPE col_pool_reg[LANE_NUM];
+  DP2TYPE pool_reg[LANE_NUM][POOL_MAX_SIZE];
 
   // Each iteration consumes one output from convolution kernel
   // and then Pooling is performed in column and row directions
@@ -600,22 +611,33 @@ void maxPool(
 #pragma unroll
     for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
 
-      if (pool_size == 3)
+      if (pool_size == 4)
         row_pool_reg[ll] =
-            pool_max(line_buf_1[ll][line_buf_ptr],
+            ((DP2TYPE) line_buf_0[ll][line_buf_ptr]) +
+            line_buf_1[ll][line_buf_ptr] +
+            line_buf_2[ll][line_buf_ptr];
+      else if (pool_size == 3)
+        row_pool_reg[ll] =
+            pool_add(line_buf_1[ll][line_buf_ptr],
                      line_buf_0[ll][line_buf_ptr]);
       else                      // pool_size==2
         row_pool_reg[ll] = line_buf_0[ll][line_buf_ptr];
 
-      pool_reg[ll][0] = pool_max(row_pool_reg[ll], conv_ch_out.lane[ll]);
+      pool_reg[ll][0] = pool_add(row_pool_reg[ll], conv_ch_out.lane[ll]);
 
+      if (pool_size == 4)
+        row_pool_reg[ll] =
+            ((DP2TYPE) pool_reg[ll][1]) +
+            pool_reg[ll][2] +
+            pool_reg[ll][3];
       if (pool_size == 3)
-        col_pool_reg[ll] = pool_max(pool_reg[ll][1], pool_reg[ll][2]);
+        col_pool_reg[ll] = pool_add(pool_reg[ll][1], pool_reg[ll][2]);
       else                      //pool_size==2
         col_pool_reg[ll] = pool_reg[ll][1];
 
-      pool_final.lane[ll] = pool_max(col_pool_reg[ll], pool_reg[ll][0]);
+      pool_final.lane[ll] = pool_add(col_pool_reg[ll], pool_reg[ll][0]);
 
+      line_buf_2[ll][line_buf_ptr] = line_buf_1[ll][line_buf_ptr];
       line_buf_1[ll][line_buf_ptr] = line_buf_0[ll][line_buf_ptr];
       line_buf_0[ll][line_buf_ptr] = conv_ch_out.lane[ll];
 
@@ -626,7 +648,7 @@ void maxPool(
     }
 
 #ifdef DEBUG_POOL
-    printf("Maxpool input_num=%d, line_buf_ptr=%d, "
+    printf("Maxpool input_num=%d, line_buf_ptr=%d,"
            "row_pool_cnt=%d, col_pool_cnt=%d\n",
            k, line_buf_ptr, row_pool_cnt, col_pool_cnt);
     printf("        row_cnt=%d\n", row_cnt);
@@ -636,7 +658,11 @@ void maxPool(
     if (row_pool_cnt == (pool_size - 1)) {
 
       if (col_pool_cnt == (pool_size - 1)) {
-        write_channel_altera(pool_ch, pool_final);
+#pragma unroll
+        for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
+          pool_finaler.lane[ll] = pool_final.lane[ll] / (pool_size * pool_size);
+        }
+        write_channel_altera(pool_ch, pool_finaler);
 #ifdef DEBUG_POOL
         printf("        reg0=%f, reg1=%f, reg2=%f, max=%f\n",
                (float)pool_reg[0][0], (float)pool_reg[0][1],
@@ -669,7 +695,6 @@ void maxPool(
     } else {
       line_buf_ptr = line_buf_ptr + 1;
     }
-
   }
 }
 
@@ -717,10 +742,11 @@ void memWrite(
 
   if ((global_z - padd_offset) < out_dim3 && (global_z >= padd_offset)) {
 
-    top[index_z_group * out_dim1x2xbatch * VEC_SIZE +
-        (global_y + batch_indx_dim2 * out_dim2) * out_dim1xbatch * VEC_SIZE +
-        (global_x + batch_indx_dim1 * out_dim1) * VEC_SIZE + index_z_item] =
-        buffer[local_z];
+    top[index_z_group * out_dim1x2xbatch * VEC_SIZE
+        + (global_y + batch_indx_dim2 * out_dim2) * out_dim1xbatch * VEC_SIZE
+        + (global_x + batch_indx_dim1 * out_dim1) * VEC_SIZE
+        + index_z_item]
+        = buffer[local_z];
 
 #ifdef DEBUG_MEMWR
     //if((global_z-padd_offset) == 0){
