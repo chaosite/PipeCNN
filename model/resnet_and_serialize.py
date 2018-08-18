@@ -289,20 +289,27 @@ def serialize_conv_to_file(conv, output_file_name):
                     output_file_name.write(raw_zero)
 
 def serialize_bn_to_file(bn, output_file_name):
+    weights_tensor = bn.weight
+    weights = weights_tensor.detach().numpy()
     running_mean_tensor = bn.running_mean
     running_mean = running_mean_tensor.detach().numpy()
     bias_tensor = bn.bias
     bias = bias_tensor.detach().numpy()
+    epsilon = bn.eps
 
-    ## running mean ##
+    ## mult ##
     for idx_0 in range(running_mean_tensor.shape[0]):
-        raw_float = struct.pack("f", running_mean[idx_0])
-        output_file_name.write(raw_float)
+        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        mult = weights[idx_0] / sqrt_val
+        raw_mult = struct.pack("f", mult)
+        output_file_name.write(raw_mult)
 
-    ## bias ##
-    for idx_0 in range(bias_tensor.shape[0]):
-        raw_float = struct.pack("f", bias[idx_0])
-        output_file_name.write(raw_float)
+    ## add ##
+    for idx_0 in range(running_mean_tensor.shape[0]):
+        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        add = (sqrt_val * bias[idx_0] - running_mean[idx_0]) / sqrt_val
+        raw_add = struct.pack("f", add)
+        output_file_name.write(raw_add)
 
 def serialize_basic_block_to_file(basic_block, output_file_name):
     serialize_conv_to_file(basic_block._modules['conv1'], output_file_name)
@@ -325,16 +332,11 @@ def serialize_weights(model, output_file_name):
     serialize_bn_to_file(model._modules['module']._modules['bn1'], f)
 
     serialize_layer_to_file(model._modules['module']._modules['layer1'], f)
+    serialize_layer_to_file(model._modules['module']._modules['layer2'], f)
+    serialize_layer_to_file(model._modules['module']._modules['layer3'], f)
+    serialize_layer_to_file(model._modules['module']._modules['layer4'], f)
 
     f.close()
-
-    #### write layer 1 to file ####
-
-
-    # model._modules['module']._modules['layer1'][0]._modules['conv1'].shape
-
-    # list(model._modules['module']._modules['layer1'][0]._modules['conv1'].weight)
-    # model._modules['module']._modules['layer1'][0]._modules['bn1'].running_mean
 
 if __name__ == "__main__":
     load_pretrained()
