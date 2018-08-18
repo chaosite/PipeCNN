@@ -318,8 +318,10 @@ def serialize_basic_block_to_file(basic_block, output_file_name):
     serialize_bn_to_file(basic_block._modules['bn2'], output_file_name)
 
     if 'downsample' in basic_block._modules.keys():
-        serialize_conv_to_file(basic_block._modules['downsample'][0], output_file_name)
-        serialize_bn_to_file(basic_block._modules['downsample'][1], output_file_name)
+        serialize_conv_to_file(basic_block._modules['downsample'][0],
+                               output_file_name)
+        serialize_bn_to_file(basic_block._modules['downsample'][1],
+                             output_file_name)
 
 def serialize_layer_to_file(layer, output_file_name):
     serialize_basic_block_to_file(layer[0], output_file_name)

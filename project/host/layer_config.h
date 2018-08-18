@@ -422,13 +422,13 @@ enum config_item {
   layer_type, // "0" -> conv, "1" -> fc
   // memRd params
   data_w, data_h, data_n, weight_w, weight_h, weight_n, weight_m, bias_size,
-  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
   // Convolution params
   conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,
   // Pooling params
-  pool_on, pool_x, pool_y, pool_z, pool_size, pool_stride,
-  lrn_on, // lrn on/off control
-  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  pool_on, /* 0 -> off, 1 -> max, 2 -> avg */ pool_x, pool_y, pool_z, pool_size, pool_stride,
+  normalization, // 0 -> off, 1 -> lrn, 2 -> batchnorm
+  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
 };
 #endif
 
