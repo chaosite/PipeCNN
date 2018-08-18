@@ -53,7 +53,7 @@
 #define PIPE_DEPTH          6
 // Pooling Kernel
 #define POOL_LBUF_DEPTH     224            // Must be large enough to hold one line (dim1/dim2)
-#define POOL_MAX_SIZE       3
+#define POOL_MAX_SIZE       4
 // Lrn Kernel
 #define LRN_WIN_SIZE        5
 #define LRN_MAX_LOCAL_SIZE  (256/VEC_SIZE) // For alexnet the max dim3 size is 256

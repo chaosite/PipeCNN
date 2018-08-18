@@ -108,13 +108,14 @@ enum config_item {
   layer_type, // "0" -> conv, "1" -> fc
   // memRd params
   data_w, data_h, data_n, weight_w, weight_h, weight_n, weight_m, bias_size,
-  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  memrd_src, // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
   // Convolution params
   conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,
   // Pooling params
-  pool_on, pool_x, pool_y, pool_z, pool_size, pool_stride,
-  lrn_on, // lrn on/off control
-  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> fc_1_buf, 3 -> fc_2_buf
+  pool_on, /* 0 -> off, 1 -> max, 2 -> avg */ pool_x, pool_y, pool_z, pool_size, pool_stride,
+  normalization, // 0 -> off, 1 -> lrn, 2 -> batchnorm
+  shortcut_src, // 0 -> off, 1 -> output_buf, 2 -> output2_buf
+  memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
 };
 
 enum input_item {
@@ -421,11 +422,11 @@ int main(int argc, char **argv)
   }
 
   // Execute the kernel
-  scoped_array < cl_event > memRd_event(num_devices);
-  scoped_array < cl_event > conv_event(num_devices);
-  scoped_array < cl_event > pool_event(num_devices);
-  scoped_array < cl_event > memWr_event(num_devices);
-  scoped_array < cl_event > lrn_event(num_devices);
+  scoped_array<cl_event> memRd_event(num_devices);
+  scoped_array<cl_event> conv_event(num_devices);
+  scoped_array<cl_event> pool_event(num_devices);
+  scoped_array<cl_event> memWr_event(num_devices);
+  scoped_array<cl_event> lrn_event(num_devices);
 
   // Recorde the excution time of each operation for each layer
 #ifndef USE_OPENCV
@@ -942,7 +943,7 @@ int main(int argc, char **argv)
           }
 
           //  Set knl_lrn arguments.
-          if (layer_config[j][lrn_on]) {
+          if (layer_config[j][normalization]) {
             argi = 0;
 
             status =
@@ -1045,7 +1046,7 @@ int main(int argc, char **argv)
           checkError(status, "Failed to launch kernel memWr");
 
           // kernel lrn
-          if (layer_config[j][lrn_on]) {
+          if (layer_config[j][normalization]) {
 
             knl_lrn_global_size[0] = layer_config[j][pool_x];
             knl_lrn_global_size[1] = layer_config[j][pool_y];
@@ -1074,7 +1075,7 @@ int main(int argc, char **argv)
             checkError(status, "Failed to launch kernel lrn");
           }
           // Wait for all kernel to finish
-          if (layer_config[j][lrn_on]) {
+          if (layer_config[j][normalization]) {
             status = clWaitForEvents(num_devices, lrn_event);
             checkError(status, "Failed to finish lrn event");
           } else {
@@ -1089,7 +1090,7 @@ int main(int argc, char **argv)
           if (layer_config[j][pool_on])
             pool_time[j] += getKernelStartEndTime(pool_event[i]);
           memWr_time[j] += getKernelStartEndTime(memWr_event[i]);
-          if (layer_config[j][lrn_on])
+          if (layer_config[j][normalization])
             lrn_time[j] += getKernelStartEndTime(lrn_event[i]);
 #endif
 
@@ -1104,7 +1105,7 @@ int main(int argc, char **argv)
             status = clReleaseEvent(pool_event[i]);
             checkError(status, "Failed to release pool event object");
           }
-          if (layer_config[j][lrn_on]) {
+          if (layer_config[j][normalization]) {
             status = clReleaseEvent(lrn_event[i]);
             checkError(status, "Failed to release lrn event object");
           }
@@ -1210,7 +1211,7 @@ void readDataBack()
                                  (void *)output, 0, NULL, &finish_event[0]);
     checkError(status, "Failed to set transfer output data");
   } // For other layers, read results from data and output buffers
-  else if (layer_config[LAYER_NUM - 1][memwr_dst] ^ layer_config[LAYER_NUM - 1][lrn_on]) {      // if lrn is used, the mem dst is changed back to src
+  else if (layer_config[LAYER_NUM - 1][memwr_dst] ^ layer_config[LAYER_NUM - 1][normalization]) {      // if lrn is used, the mem dst is changed back to src
     printf("\nCopied one result from No.%d output buffers.\n", batch_item_num);
     status = clEnqueueReadBuffer(que_memWr[0], output_buf[batch_item_num], CL_FALSE,    // read from device0
                                  0, sizeof(DTYPE) * read_buf_size,
@@ -1872,10 +1873,8 @@ void extractOutput(DTYPE * output, DTYPE * output_one_item, unsigned item_num,
                           + i * dim1 * VEC_SIZE
                           + j * VEC_SIZE
                           + vv]
-              = output[k * dim2 * dim1 * batch_size_in_dim * batch_size_in_dim *
-                       VEC_SIZE
-                       + (i + batch_indx_dim2 * dim2) * batch_size_in_dim
-                       * dim1 * VEC_SIZE
+              = output[k * dim2 * dim1 * batch_size_in_dim * batch_size_in_dim * VEC_SIZE
+                       + (i + batch_indx_dim2 * dim2) * batch_size_in_dim * dim1 * VEC_SIZE
                        + (j + batch_indx_dim1 * dim1) * VEC_SIZE
                        + vv];
         }
