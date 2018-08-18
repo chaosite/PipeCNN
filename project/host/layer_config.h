@@ -428,6 +428,7 @@ enum config_item {
   // Pooling params
   pool_on, /* 0 -> off, 1 -> max, 2 -> avg */ pool_x, pool_y, pool_z, pool_size, pool_stride,
   normalization, // 0 -> off, 1 -> lrn, 2 -> batchnorm
+  shortcut_src, // 0 -> off, 1 -> output_buf, 2 -> output2_buf
   memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
 };
 #endif
