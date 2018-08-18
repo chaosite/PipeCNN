@@ -293,20 +293,22 @@ def serialize_bn_to_file(bn, output_file):
     weights = weights_tensor.detach().numpy()
     running_mean_tensor = bn.running_mean
     running_mean = running_mean_tensor.detach().numpy()
+    running_var_tensor = bn.running_var
+    running_var = running_var_tensor.detach().numpy()
     bias_tensor = bn.bias
     bias = bias_tensor.detach().numpy()
     epsilon = bn.eps
 
     ## mult ##
     for idx_0 in range(running_mean_tensor.shape[0]):
-        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        sqrt_val = math.sqrt(running_var[idx_0] + epsilon)
         mult = weights[idx_0] / sqrt_val
         raw_mult = struct.pack("f", mult)
         output_file.write(raw_mult)
 
     ## add ##
     for idx_0 in range(running_mean_tensor.shape[0]):
-        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        sqrt_val = math.sqrt(running_var[idx_0] + epsilon)
         add = (sqrt_val * bias[idx_0] - running_mean[idx_0]) / sqrt_val
         raw_add = struct.pack("f", add)
         output_file.write(raw_add)
