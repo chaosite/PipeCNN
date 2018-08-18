@@ -342,12 +342,23 @@ def serialize_weights(model, output_file_name):
 
     f.close()
 
-def verbose(conv_layer):
+def verbose(conv_layer, in_size):
     print("in_channels=" + str(conv_layer.in_channels))
     print("out_channels=" + str(conv_layer.out_channels))
-    # print("kernel_size=" str(conv_layer.kernel_size[0]) + "," + str(conv_layer.kernel_size[1]))
-    print("padding=" + str(conv_layer.padding))
+    print("weights=" + str(conv_layer.weight.shape))
+    print("kernel_size=" + str(conv_layer.kernel_size))
     print("stride=" + str(conv_layer.stride))
+    print("padding=" + str(conv_layer.padding))
+    print("dilation=" + str(conv_layer.dilation))
+    print("out_size=" + str(out_size(in_size, conv_layer)))
+
+def out_size(in_size, conv_layer):
+    out_size = in_size + 2 * conv_layer.padding[0]
+    out_size = out_size - conv_layer.dilation[0] * (conv_layer.kernel_size[0] - 1) - 1
+    out_size = out_size / conv_layer.stride[0]
+    out_size = out_size + 1
+    out_size = math.floor(out_size)
+    return out_size
 
 if __name__ == "__main__":
     load_pretrained()
