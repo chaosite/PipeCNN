@@ -267,7 +267,7 @@ def load_pretrained():
     model.load_state_dict(checkpoint['state_dict'])
     return model
 
-def serialize_conv_to_file(conv, output_file_name):
+def serialize_conv_to_file(conv, output_file):
      #### write first conv to file ####
     weights_tensor = conv.weight
     weights = weights_tensor.detach().numpy()
@@ -278,7 +278,7 @@ def serialize_conv_to_file(conv, output_file_name):
             for idx_2 in range(weights_tensor.shape[2]):
                 for idx_3 in range(weights_tensor.shape[3]):
                     raw_float = struct.pack("f", weights[idx_0][idx_1][idx_2][idx_3])
-                    output_file_name.write(raw_float)
+                    output_file.write(raw_float)
 
     ## bias - padding of zeros ##
     raw_zero = struct.pack("f", 0)
@@ -286,46 +286,48 @@ def serialize_conv_to_file(conv, output_file_name):
         for idx_1 in range(weights_tensor.shape[1]):
             for idx_2 in range(weights_tensor.shape[2]):
                 for idx_3 in range(weights_tensor.shape[3]):
-                    output_file_name.write(raw_zero)
+                    output_file.write(raw_zero)
 
-def serialize_bn_to_file(bn, output_file_name):
+def serialize_bn_to_file(bn, output_file):
     weights_tensor = bn.weight
     weights = weights_tensor.detach().numpy()
     running_mean_tensor = bn.running_mean
     running_mean = running_mean_tensor.detach().numpy()
+    running_var_tensor = bn.running_var
+    running_var = running_var_tensor.detach().numpy()
     bias_tensor = bn.bias
     bias = bias_tensor.detach().numpy()
     epsilon = bn.eps
 
     ## mult ##
     for idx_0 in range(running_mean_tensor.shape[0]):
-        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        sqrt_val = math.sqrt(running_var[idx_0] + epsilon)
         mult = weights[idx_0] / sqrt_val
         raw_mult = struct.pack("f", mult)
-        output_file_name.write(raw_mult)
+        output_file.write(raw_mult)
 
     ## add ##
     for idx_0 in range(running_mean_tensor.shape[0]):
-        sqrt_val = math.sqrt(running_mean[idx_0] + epsilon)
+        sqrt_val = math.sqrt(running_var[idx_0] + epsilon)
         add = (sqrt_val * bias[idx_0] - running_mean[idx_0]) / sqrt_val
         raw_add = struct.pack("f", add)
-        output_file_name.write(raw_add)
+        output_file.write(raw_add)
 
-def serialize_basic_block_to_file(basic_block, output_file_name):
-    serialize_conv_to_file(basic_block._modules['conv1'], output_file_name)
-    serialize_bn_to_file(basic_block._modules['bn1'], output_file_name)
-    serialize_conv_to_file(basic_block._modules['conv2'], output_file_name)
-    serialize_bn_to_file(basic_block._modules['bn2'], output_file_name)
+def serialize_basic_block_to_file(basic_block, output_file):
+    serialize_conv_to_file(basic_block._modules['conv1'], output_file)
+    serialize_bn_to_file(basic_block._modules['bn1'], output_file)
+    serialize_conv_to_file(basic_block._modules['conv2'], output_file)
+    serialize_bn_to_file(basic_block._modules['bn2'], output_file)
 
     if 'downsample' in basic_block._modules.keys():
         serialize_conv_to_file(basic_block._modules['downsample'][0],
-                               output_file_name)
+                               output_file)
         serialize_bn_to_file(basic_block._modules['downsample'][1],
-                             output_file_name)
+                             output_file)
 
-def serialize_layer_to_file(layer, output_file_name):
-    serialize_basic_block_to_file(layer[0], output_file_name)
-    serialize_basic_block_to_file(layer[1], output_file_name)
+def serialize_layer_to_file(layer, output_file):
+    serialize_basic_block_to_file(layer[0], output_file)
+    serialize_basic_block_to_file(layer[1], output_file)
 
 def serialize_weights(model, output_file_name):
     f = open(output_file_name, "wb")
@@ -339,6 +341,13 @@ def serialize_weights(model, output_file_name):
     serialize_layer_to_file(model._modules['module']._modules['layer4'], f)
 
     f.close()
+
+def verbose(conv_layer):
+    print("in_channels=" + str(conv_layer.in_channels))
+    print("out_channels=" + str(conv_layer.out_channels))
+    # print("kernel_size=" str(conv_layer.kernel_size[0]) + "," + str(conv_layer.kernel_size[1]))
+    print("padding=" + str(conv_layer.padding))
+    print("stride=" + str(conv_layer.stride))
 
 if __name__ == "__main__":
     load_pretrained()
