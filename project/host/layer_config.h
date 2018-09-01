@@ -426,7 +426,7 @@ enum config_item {
   // Convolution params
   conv_x, conv_y, conv_z, conv_stride, conv_padding, conv_split, conv_relu,
   // Pooling params
-  pool_on, /* 0 -> off, 1 -> max, 2 -> avg */ pool_x, pool_y, pool_z, pool_size, pool_stride,
+  pool_on, /* 0 -> off, 1 -> avg */ pool_x, pool_y, pool_z, pool_size, pool_stride,
   normalization, // 0 -> off, 1 -> lrn, 2 -> batchnorm
   shortcut_src, // 4 -> off, 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf
   memwr_dst // 0 -> data_buf, 1 -> output_buf, 2 -> output2_buf, 3 -> fc_1_buf, 4 -> fc_2_buf
@@ -442,10 +442,10 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       2, /* normalization */
       4, /* shortcut */
       1}, /* memwr_dst */
-     
+
       /* layer 1 */
-	  
-	  /* Basic Block 0 */
+
+     /* Basic Block 0 */
      {0, /* layer_type */
       32, 32, 64, 64, 64, 3, 3, 64, /* memRd params */
       1, /* memrd_src */
@@ -462,8 +462,8 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       2, /* normalization */
       1, /* shortcut */
       2}, /* memwr_dst */
-	  
-	  /* Basic Block 1 */
+
+     /* Basic Block 1 */
      {0, /* layer_type */
       32, 32, 64, 64, 64, 3, 3, 64, /* memRd params */
       2, /* memrd_src */
@@ -480,12 +480,12 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       2, /* normalization */
       2, /* shortcut */
       0}, /* memwr_dst */
-      
-      /* layer 2 */
-	  /* Basic Block 0 */
 
-	 /* shortcut */
-	 {0, /* layer_type */
+     /* layer 2 */
+     /* Basic Block 0 */
+
+     /* shortcut */
+     {0, /* layer_type */
       32, 32, 64, 128, 64, 1, 1, 128, /* memRd params */
       0, /* memrd_src */
       16, 16, 128, 2, 0, 0, 1, /* conv params */
@@ -511,7 +511,7 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       1, /* shortcut */
       0}, /* memwr_dst */
 
-	  /* Basic Block 1 */
+     /* Basic Block 1 */
      {0, /* layer_type */
       16, 16, 128, 128, 128, 3, 3, 128, /* memRd params */
       0, /* memrd_src */
@@ -529,11 +529,10 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       0, /* shortcut */
       2}, /* memwr_dst */
 
-      /* layer 3 */
-	  /* Basic Block 0 */
-
-	 /* shortcut */
-	 {0, /* layer_type */
+     /* layer 3 */
+     /* Basic Block 0 */
+     /* shortcut */
+     {0, /* layer_type */
       16, 16, 128, 256, 128, 1, 1, 256, /* memRd params */
       2, /* memrd_src */
       8, 8, 256, 2, 0, 0, 1, /* conv params */
@@ -559,7 +558,7 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       0, /* shortcut */
       2}, /* memwr_dst */
 
-	  /* Basic Block 1 */
+     /* Basic Block 1 */
      {0, /* layer_type */
       8, 8, 256, 256, 256, 3, 3, 256, /* memRd params */
       2, /* memrd_src */
@@ -578,10 +577,10 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       0}, /* memwr_dst */
 
       /* layer 4 */
-	  /* Basic Block 0 */
+     /* Basic Block 0 */
 
-	 /* shortcut */
-	 {0, /* layer_type */
+     /* shortcut */
+     {0, /* layer_type */
       8, 8, 256, 512, 256, 1, 1, 512, /* memRd params */
       0, /* memrd_src */
       4, 4, 512, 2, 0, 0, 1, /* conv params */
@@ -607,7 +606,7 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       1, /* shortcut */
       0}, /* memwr_dst */
 
-	  /* Basic Block 1 */
+     /* Basic Block 1 */
      {0, /* layer_type */
       4, 4, 512, 512, 512, 3, 3, 512, /* memRd params */
       0, /* memrd_src */
@@ -620,14 +619,14 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       4, 4, 512, 512, 512, 3, 3, 512, /* memRd params */
       2, /* memrd_src */
       4, 4, 512, 1, 1, 0, 1, /* conv params */
-      2, 4, 4, 512, 4, 4, /* pooling */
+      1, 4, 4, 512, 4, 4, /* pooling */
       2, /* normalization */
       0, /* shortcut */
       3}, /* memwr_dst */
 
 
-	/* fc layer */ 
-	  {1, /* layer_type */
+     /* fc layer */
+     {1, /* layer_type */
       4, 4, 512, 10, 512, 0, 0, 10, /* memRd params */
       3, /* memrd_src */
       4, 4, 512, 1, 1, 0, 1, /* conv params */
