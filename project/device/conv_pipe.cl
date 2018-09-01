@@ -50,9 +50,11 @@
 #define write_channel_altera write_channel_intel
 
 // Define the precision of the data-path
-typedef char DPTYPE;
-typedef short DP2TYPE;
-typedef int MACTYPE;
+typedef float DPTYPE;
+typedef double DP2TYPE;
+typedef double MACTYPE;
+
+#define USE_FLOAT
 
 // Vectorized data type
 typedef struct {
@@ -83,6 +85,8 @@ channel channel_scal conv_ch __attribute__ ((depth(CHN_DEPTH)));
 channel channel_scal pool_ch __attribute__ ((depth(CHN_DEPTH)));
 channel channel_scal bypass_ch __attribute__ ((depth(CHN_DEPTH)));
 
+
+#ifndef USE_FLOAT
 // parallel MAC units including (VEC_SIZE-1) multipliers
 MACTYPE mac(lane_data input, lane_data weights)
 {
@@ -101,6 +105,24 @@ MACTYPE mac(lane_data input, lane_data weights)
   }
   return output;
 }
+#else // USE_FLOAT
+MACTYPE mac(lane_data input, lane_data weights)
+{
+    MACTYPE output = 0;
+#pragma unroll
+    for (int i = 0; i < VEC_SIZE / 4; i++) {
+        output +=
+            input.data[i * 4] * weights.data[i * 4];
+        output +=
+            input.data[i * 4 + 1] * weights.data[i * 4 + 1];
+        output +=
+            input.data[i * 4 + 2] * weights.data[i * 4 + 2];
+        output +=
+            input.data[i * 4 + 3] * weights.data[i * 4 + 3];
+    }
+    return output;
+}
+#endif // USE_FLOAT
 
 DPTYPE pool_max(DPTYPE a_in, DPTYPE b_in)
 {
@@ -478,7 +500,11 @@ void coreConv( // Params Ports
 
 #pragma unroll
       for (unsigned int p = 0; p < PIPE_DEPTH; p++) {
-        accum_piped[ll][p] = MASK_ACCUM & CZERO;
+#ifndef USE_FLOAT
+          accum_piped[ll][p] = MASK_ACCUM & CZERO;
+#else // USE_FLOAT
+          accum_piped[ll][p] = 0;
+#endif // USE_FLOAT
       }
     }
 
@@ -490,16 +516,29 @@ void coreConv( // Params Ports
 #pragma unroll
       for (unsigned char ll = 0; ll < LANE_NUM; ll++) {
 
+#ifndef USE_FLOAT
         lane_accum[ll] =
             (MASK_ACCUM & accum_piped[ll][PIPE_DEPTH - 1]) +
             (MASK_MULT & mac(mac_data.lane[ll], mac_weight.lane[ll]));
+#else // USE_FLOAT
+        lane_accum[ll] = accum_piped[ll][PIPE_DEPTH - 1] +
+            mac(mac_data.lane[ll], mac_weight.lane[ll]);
+#endif // USE_FLOAT
 
 #pragma unroll
         for (unsigned int p = PIPE_DEPTH - 1; p > 0; p--) {
-          accum_piped[ll][p] = MASK_ACCUM & accum_piped[ll][p - 1];
+#ifndef USE_FLOAT
+            accum_piped[ll][p] = MASK_ACCUM & accum_piped[ll][p - 1];
+#else // USE_FLOAT
+            accum_piped[ll][p] = accum_piped[ll][p - 1];
+#endif // USE_FLOAT
         }
 
+#ifndef USE_FLOAT
         accum_piped[ll][0] = MASK_ACCUM & lane_accum[ll];
+#else // USE_FLOAT
+        accum_piped[ll][0] = lane_accum[ll];
+#endif
 
 #ifdef DEBUG_CONV
         //if(ll==0 && k==0){
@@ -517,6 +556,7 @@ void coreConv( // Params Ports
         conv_out[ll] += accum_piped[ll][i];
       }
 
+#ifndef USE_FLOAT // This is quantization stuff I can do without?
       if (conv_out[ll] >= 0)
         conv_sign_exten[ll] = 0x00;
       else
@@ -535,6 +575,9 @@ void coreConv( // Params Ports
         conv_sum_bias[ll] =
             (MASK9B & conv_with_rnd_bit[ll]) +
             (bias[ll] >> (frac_w - frac_dout - 1)) + 0x01;
+#else // USE_FLOAT
+      conv_sum_bias[ll] = conv_out[ll] + bias[ll];
+#endif // USE_FLOAT
 
       // BatchNorm operation
       if ((control & 0x04) == 0x04) {
@@ -545,12 +588,20 @@ void coreConv( // Params Ports
       // Shortcut add.
 
 
+#ifndef USE_FLOAT
       conv_final[ll] = MASK8B & (conv_sum_bias[ll] >> 0x01);
+#else // USE_FLOAT
+      conv_final[ll] = conv_sum_bias[ll];
+#endif // USE_FLOAT
 
 
       // Relu operation
       if ((control & 0x01) == 0x01) {
+#ifndef USE_FLOAT
         if ((conv_final[ll] & MASKSIGN) == MASKSIGN)
+#else // USE_FLOAT
+        if(conv_final[ll] <= 0)
+#endif // USE_FLOAT
           conv_ch_in.lane[ll] = 0;
         else
           conv_ch_in.lane[ll] = conv_final[ll];
@@ -837,9 +888,11 @@ void lrn(
     lrn_reg2 = CZERO;
 #pragma unroll
     for (char k = -LRN_WIN_SIZE / 2; k <= LRN_WIN_SIZE / 2; k++) {
+#ifndef USE_FLOAT // THIS BREAKS LRN WHO CARES HAHAHAHA
       lrn_cnvt =
           z_buffer[global_z * VEC_SIZE + ll + k +
                    LRN_WIN_SIZE / 2] << (-frac_dout);
+#endif // USE_FLOAT
       lrn_reg1 = convert_float(lrn_cnvt);
       lrn_reg2 += lrn_reg1 * lrn_reg1;
 #ifdef DEBUG_LRN
@@ -861,8 +914,10 @@ void lrn(
     lrn_tmp =
         ((lrn_reg2 - x_sample[addr]) * h_inv[addr]) * coef1[addr] + coef0[addr];
 
+#ifndef USE_FLOAT // THIS BREAKS LRN AGAIN
     lrn_cnvt2 =
         z_buffer[global_z * VEC_SIZE + ll + LRN_WIN_SIZE / 2] << (-frac_dout);
+#endif // USE_FLOAT
     lrn_out = lrn_tmp * convert_float(lrn_cnvt2);
 
     // Convert float to DPTYPE fixed-point
