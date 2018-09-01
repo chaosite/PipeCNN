@@ -71,9 +71,10 @@ typedef struct {
 
 typedef struct {
   DP2TYPE lane[LANE_NUM];
-} chanell_scal2;
+} channel_scal2;
 
 channel channel_vec data_ch __attribute__ ((depth(0)));
+channel channel_vec shortcut_ch __attribute__ ((depth(8)));
 channel channel_vec weight_ch __attribute__ ((depth(0)));
 channel channel_scal bn_add_ch __attribute__ ((depth(8)));
 channel channel_scal bn_mult_ch __attribute__ ((depth(8)));
@@ -130,12 +131,14 @@ void memRead(
               uchar stride,
               uchar padding,
               uchar split,
+              uint control,
               uchar group_num_x, uchar group_num_y, uchar group_rem_size_x,
               //uchar  group_rem_size_y, // not used in this version
               uint group_rem_size_xyz,
               uchar win_size_x, uchar win_size_y, uint win_size_xyz,
               // Data Ports
               __global lane_data * restrict bottom,
+              __global lane_data * restrict shortcut,
               __global channel_vec * restrict weights,
               __global channel_scal * restrict bias,
               __global channel_scal * restrict bn_mult,
@@ -144,6 +147,7 @@ void memRead(
 
   // Input Data, Weights and Bias
   lane_data data_vec;
+  lane_data shortcut_vec;
   channel_vec data_ch_vec;
   channel_vec weight_ch_vec;
   channel_scal bias_ch_in;
@@ -175,10 +179,6 @@ void memRead(
   __local lane_data win_buffer[2][WIN_BUF_SIZE];        // working sequence 0->1->0->1 ...
   // Weight buffer
   __local channel_vec weight_buffer[WEIGHT_BUF_SIZE];
-
-  // BN Stuff
-  __local channel_vec bn_mean_buffer[WEIGHT_BUF_SIZE];
-  __local channel_vec bn_var_buffer[WEIGHT_BUF_SIZE];
 
   // Initialize the winbuf with the data in the first iteration of the group looping (as gp_num_x_winbuf=0, gp_num_y_winbuf=0)
   for (unsigned short win_itm_z = 0; win_itm_z < weight_dim3 / VEC_SIZE;
