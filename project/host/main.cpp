@@ -80,8 +80,8 @@ float accuracy5 = 0;
 #define IMAGE_FILE_SIZE   (32*32*3)
 //#define WEIGHTS_FILE_SIZE 60965224 //fc8-1000
 #define WEIGHTS_FILE_SIZE 89312256     //fc8-1024
-#define LAYER_NUM         1
-#define CONV_NUM          1
+#define LAYER_NUM         21
+#define CONV_NUM          20
 const char *weight_file_path = "../model/weights.dat";
 const char *input_file_path = "../model/image.dat";
 const char *ref_file_path = "../model/fc8.dat";
