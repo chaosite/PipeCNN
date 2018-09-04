@@ -37,7 +37,7 @@ using namespace cv;
 using namespace std;
 using namespace ocl_util;
 
-typedef signed char DTYPE;
+typedef float DTYPE;
 
 
 //----------- Design Parameters --------------//
@@ -60,11 +60,11 @@ const char *vendor_name = "Intel";
 #define MEAN_DATA_CHANNEl 3
 #define PICTURE_NUM 8000
 #define MAX_PIC_NUM 50000
-const char *mean_data_file_path = "../data/imagenet/mean_data.dat";
+const char *mean_data_file_path = "../model/mean_data.png";
 const char *synset_word_file_path = "../data/imagenet/synset_words.txt";
 const char *LabelPath = "../data/imagenet/val.txt";
 char picture_file_path_head[100] =
-    "~/Technion/projects/DLCA/ILSVRC2012_img_val/ILSVRC2012_val_";
+    "~/Technion/projects/DLCA/datasets/train/";
 char picture_file_path[100];
 int label[MAX_PIC_NUM] = { 0 };
 char label_buf[MAX_PIC_NUM][1024] = { 0 };
@@ -77,9 +77,9 @@ float accuracy5 = 0;
 // AlexNet
 // Original problem size
 // File size is in num of DTYPE numbers
-#define IMAGE_FILE_SIZE   (227*227*3)
+#define IMAGE_FILE_SIZE   (32*32*3)
 //#define WEIGHTS_FILE_SIZE 60965224 //fc8-1000
-#define WEIGHTS_FILE_SIZE 61063552      //fc8-1024
+#define WEIGHTS_FILE_SIZE 89312256     //fc8-1024
 #define LAYER_NUM         1
 #define CONV_NUM          1
 const char *weight_file_path = "../model/weights.dat";
@@ -168,6 +168,8 @@ DTYPE *image;
 DTYPE *data_init;
 DTYPE *weight_conv[MAX_LAYER_NUM];
 DTYPE *bias_conv[MAX_LAYER_NUM];
+DTYPE *bn_mult_conv[MAX_LAYER_NUM];
+DTYPE *bn_add_conv[MAX_LAYER_NUM];
 DTYPE *output;
 DTYPE *output_one_item;
 DTYPE *output_reorder;
@@ -381,6 +383,23 @@ int main(int argc, char **argv)
                                layer_config[j][bias_size] *
                                sizeof(DTYPE), bias_conv[j], 0, NULL, NULL);
       checkError(status, "Failed to transfer bias");
+
+      status =
+          clEnqueueWriteBuffer(que_memRd[i],
+                               bn_mult_buf[i * LAYER_NUM + j],
+                               CL_TRUE, 0,
+                               layer_config[j][bias_size] *
+                               sizeof(DTYPE), bn_mult_conv[j], 0, NULL, NULL);
+      checkError(status, "Failed to transfer bias");
+
+      status =
+          clEnqueueWriteBuffer(que_memRd[i],
+                               bn_add_buf[i * LAYER_NUM + j],
+                               CL_TRUE, 0,
+                               layer_config[j][bias_size] *
+                               sizeof(DTYPE), bn_add_conv[j], 0, NULL, NULL);
+      checkError(status, "Failed to transfer bias");
+
     }
 
     // Create data buffers for each batch item
@@ -1411,7 +1430,7 @@ void loadImageToBuffer(int num)
   // get the correct paths for each pictures
   char end[14] = "00000000.JPEG";       //endof the char[] '\0'
   char head[100];
-  numtochar(num, end);
+  sprintf(end, "%d_*.png", num);
   memset(picture_file_path, 0x00, sizeof(char) * 100);
   strcpy(head, picture_file_path_head);
   strcpy(picture_file_path, strcat(head, end));
@@ -1695,15 +1714,25 @@ int prepare()
     bias_conv[j] =
         (DTYPE *) alignedMalloc(sizeof(DTYPE) *
                                 layer_config[j][bias_size], DMA_ALIGNMENT);
+    bn_mult_conv[j] =
+        (DTYPE *) alignedMalloc(sizeof(DTYPE) *
+                                layer_config[j][bias_size], DMA_ALIGNMENT);
+    bn_add_conv[j] =
+        (DTYPE *) alignedMalloc(sizeof(DTYPE) *
+                                layer_config[j][bias_size], DMA_ALIGNMENT);
 
     memset(weight_conv[j], 0, sizeof(DTYPE) * weight_size);     // reset all value (include padding value) to zero
     memset(bias_conv[j], 0, sizeof(DTYPE) * layer_config[j][bias_size]);        // reset all value (include padding value) to zero
+    memset(bn_mult_conv[j], 0, sizeof(DTYPE) * layer_config[j][bias_size]);
+    memset(bn_add_conv[j], 0, sizeof(DTYPE) * layer_config[j][bias_size]);
 
-    if (weight_conv[j] == NULL || bias_conv[j] == NULL) {
+    if (weight_conv[j] == NULL || bias_conv[j] == NULL || bn_mult_conv[j] == NULL || bn_add_conv[j] == NULL) {
       printf("Not enough memory !!!");
       for (int i = 0; i <= j; i++) {
         alignedFree(weight_conv[i]);
         alignedFree(bias_conv[i]);
+        alignedFree(bn_mult_conv[i]);
+        alignedFree(bn_add_conv[i]);
       }
       return 1;
     }
@@ -1755,7 +1784,7 @@ int prepare()
   }
   fclose(fp);
   labelNum();
-#endif
+#else
   // golden_output
   bin_file_r.open(ref_file_path, ios::in | ios::binary);
 
@@ -1773,7 +1802,7 @@ int prepare()
     bin_file_r.close();
   } else
     printf("Golden file does not exits !!!\n");
-
+#endif
   // Layer-1
   reorderWeights(weights, weight_conv[0], layer_config[0][weight_w],
                  layer_config[0][weight_h], layer_config[0][weight_n],
@@ -1785,6 +1814,16 @@ int prepare()
       layer_config[0][weight_w] * layer_config[0][weight_h] *
       layer_config_original[0][weight_n] * layer_config_original[0][weight_m];
   reorderBias(weights, bias_conv[0], ptr, padding_offset[0],
+              layer_config[0][bias_size],
+              layer_config_original[0][bias_size], LANE_NUM);
+  ptr += layer_config_original[0][bias_size];
+
+  // batch normalization
+  reorderBias(weights, bn_mult_conv[0], ptr, padding_offset[0],
+              layer_config[0][bias_size],
+              layer_config_original[0][bias_size], LANE_NUM);
+  ptr += layer_config_original[0][bias_size];
+  reorderBias(weights, bn_add_conv[0], ptr, padding_offset[0],
               layer_config[0][bias_size],
               layer_config_original[0][bias_size], LANE_NUM);
   ptr += layer_config_original[0][bias_size];
@@ -1815,6 +1854,17 @@ int prepare()
                 layer_config[j][bias_size],
                 layer_config_original[j][bias_size], LANE_NUM);
     ptr += layer_config_original[j][bias_size];
+
+    // Batch normalization
+    reorderBias(weights, bn_mult_conv[j], ptr, padding_offset[j],
+                layer_config[j][bias_size],
+                layer_config_original[j][bias_size], LANE_NUM);
+    ptr += layer_config_original[j][bias_size];
+    reorderBias(weights, bn_add_conv[j], ptr, padding_offset[j],
+                layer_config[j][bias_size],
+                layer_config_original[j][bias_size], LANE_NUM);
+    ptr += layer_config_original[j][bias_size];
+
   }
 
   return 0;
@@ -2024,7 +2074,7 @@ int getProb(DTYPE * output)
 
 }
 
-void dumpResult(bool showGoldenRef = true, bool showInput = false)
+void dumpResult(bool showGoldenRef = false, bool showInput = false)
 {
   ofstream result_file;
   result_file.open(dump_file_path, ios::out);
@@ -2098,9 +2148,10 @@ int load_picture(DTYPE * image)
     return 1;
   }
 
-  FILE *p_mean_data = fopen(mean_data_file_path, "rb");
-  fread(mean_data, sizeof(float),
-        MEAN_DATA_WIDTH * MEAN_DATA_HEIGHT * MEAN_DATA_CHANNEl, p_mean_data);
+  Mat mean_mat = imread(mean_data_file_path, CV_LOAD_IMAGE_COLOR);
+  // FILE *p_mean_data = fopen(mean_data_file_path, "rb");
+  // fread(mean_data, sizeof(float),
+  //       MEAN_DATA_WIDTH * MEAN_DATA_HEIGHT * MEAN_DATA_CHANNEl, p_mean_data);
 
   // load picture from files
 
@@ -2112,7 +2163,8 @@ int load_picture(DTYPE * image)
     printf("img.data == NULL\n");
   resize(img, img1, Size(MEAN_DATA_WIDTH, MEAN_DATA_HEIGHT));
   img1.convertTo(img1, CV_32FC3);
-  Mat mean_mat(MEAN_DATA_WIDTH, MEAN_DATA_HEIGHT, CV_32FC3, mean_data);
+  // Mat mean_mat(MEAN_DATA_WIDTH, MEAN_DATA_HEIGHT, CV_32FC3, mean_data);
+  mean_mat.convertTo(mean_mat, CV_32FC3);
   img1 = img1 - mean_mat;
   // resize to the input size of the first layer
   Mat img2;
@@ -2135,7 +2187,7 @@ int load_picture(DTYPE * image)
       }
     }
   }
-  fclose(p_mean_data);
+  // fclose(p_mean_data);
   free(mean_data);
   return 0;
 }
@@ -2170,7 +2222,6 @@ void numtochar(int num, char *end)
     num /= 10;
     counter++;
   }
-
 }
 
 void strcopy(DTYPE * str1, DTYPE * str2)
@@ -2215,7 +2266,6 @@ void getAccuracy(DTYPE * output_reorder, int num)
 
   printf("Current Top-1 accuracy = %5.3f\n", tmp_accuracy1);
   printf("Current Top-5 accuracy = %5.3f\n", tmp_accuracy5);
-
 }
 #endif
 
