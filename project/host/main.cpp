@@ -48,15 +48,15 @@ const char *vendor_name = "Intel";
 
 // SW System parameters
 #define DMA_ALIGNMENT   64
-#define MAX_LAYER_NUM   16
+#define MAX_LAYER_NUM   24
 #define MAX_BATCH_SIZE  16
 
 #define IN_BUF_SIZE    256*256*64       // Note: the buffer size should be large enough to hold all temperary results
 #define OUT_BUF_SIZE   256*256*64
 #define FC_BUF_SIZE    32768*MAX_BATCH_SIZE*8
 
-#define MEAN_DATA_WIDTH   256
-#define MEAN_DATA_HEIGHT  256
+#define MEAN_DATA_WIDTH   32
+#define MEAN_DATA_HEIGHT  32
 #define MEAN_DATA_CHANNEl 3
 #define PICTURE_NUM 8000
 #define MAX_PIC_NUM 50000
@@ -64,7 +64,7 @@ const char *mean_data_file_path = "../model/mean_data.png";
 const char *synset_word_file_path = "../data/imagenet/synset_words.txt";
 const char *LabelPath = "../data/imagenet/val.txt";
 char picture_file_path_head[100] =
-    "~/Technion/projects/DLCA/datasets/train/";
+    "~/Technion/projects/DLCA/datasets/cifar/train/";
 char picture_file_path[100];
 int label[MAX_PIC_NUM] = { 0 };
 char label_buf[MAX_PIC_NUM][1024] = { 0 };
@@ -342,12 +342,15 @@ int main(int argc, char **argv)
           layer_config[j][weight_h] *
           layer_config[j][weight_n] * layer_config[j][weight_m];
       // Weights buffers for each layer
+      printf("Allocating weights: %lu\n", weight_buf_size * sizeof(DTYPE));
       weights_buf[i * LAYER_NUM + j] =
           clCreateBuffer(context, CL_MEM_READ_ONLY,
                          weight_buf_size * sizeof(DTYPE), NULL, &status);
       checkError(status, "Failed to create buffer for weights in layer");
 
       // Bias buffers for each layer
+      printf("Allocating bias: %lu\n", layer_config[j][bias_size] * sizeof(DTYPE));
+
       bias_buf[i * LAYER_NUM + j] =
           clCreateBuffer(context, CL_MEM_READ_ONLY,
                          layer_config[j][bias_size] *
@@ -1144,7 +1147,7 @@ int main(int argc, char **argv)
           checkError(status, "Failed to launch kernel memWr");
 
           // kernel lrn
-          if (layer_config[j][normalization]) {
+          if (layer_config[j][normalization] == 1) {
 
             knl_lrn_global_size[0] = layer_config[j][pool_x];
             knl_lrn_global_size[1] = layer_config[j][pool_y];
@@ -1173,7 +1176,7 @@ int main(int argc, char **argv)
             checkError(status, "Failed to launch kernel lrn");
           }
           // Wait for all kernel to finish
-          if (layer_config[j][normalization]) {
+          if (layer_config[j][normalization] == 1) {
             status = clWaitForEvents(num_devices, lrn_event);
             checkError(status, "Failed to finish lrn event");
           } else {
@@ -1188,7 +1191,7 @@ int main(int argc, char **argv)
           if (layer_config[j][pool_on])
             pool_time[j] += getKernelStartEndTime(pool_event[i]);
           memWr_time[j] += getKernelStartEndTime(memWr_event[i]);
-          if (layer_config[j][normalization])
+          if (layer_config[j][normalization] == 1)
             lrn_time[j] += getKernelStartEndTime(lrn_event[i]);
 #endif
 
@@ -1203,7 +1206,7 @@ int main(int argc, char **argv)
             status = clReleaseEvent(pool_event[i]);
             checkError(status, "Failed to release pool event object");
           }
-          if (layer_config[j][normalization]) {
+          if (layer_config[j][normalization] == 1) {
             status = clReleaseEvent(lrn_event[i]);
             checkError(status, "Failed to release lrn event object");
           }
@@ -1309,7 +1312,7 @@ void readDataBack()
                                  (void *)output, 0, NULL, &finish_event[0]);
     checkError(status, "Failed to set transfer output data");
   } // For other layers, read results from data and output buffers
-  else if (layer_config[LAYER_NUM - 1][memwr_dst] ^ layer_config[LAYER_NUM - 1][normalization]) {      // if lrn is used, the mem dst is changed back to src
+  else if (layer_config[LAYER_NUM - 1][memwr_dst] ^ (layer_config[LAYER_NUM - 1][normalization] == 1)) {      // if lrn is used, the mem dst is changed back to src
     printf("\nCopied one result from No.%d output buffers.\n", batch_item_num);
     status = clEnqueueReadBuffer(que_memWr[0], output_buf[batch_item_num], CL_FALSE,    // read from device0
                                  0, sizeof(DTYPE) * read_buf_size,
@@ -1713,14 +1716,12 @@ int prepare()
          layer_config[j][weight_n] * layer_config[j][weight_m]);
     weight_conv[j] =
         (DTYPE *) alignedMalloc(sizeof(DTYPE) * weight_size, DMA_ALIGNMENT);
-    bias_conv[j] =
-        (DTYPE *) alignedMalloc(sizeof(DTYPE) *
+    fprintf(stderr, "bias_size: %d, bias_size (size_t): %lu\n", layer_config[j][bias_size], layer_config[j][bias_size]*sizeof(DTYPE));
+    bias_conv[j] = (DTYPE *) alignedMalloc(sizeof(DTYPE) *
                                 layer_config[j][bias_size], DMA_ALIGNMENT);
-    bn_mult_conv[j] =
-        (DTYPE *) alignedMalloc(sizeof(DTYPE) *
+    bn_mult_conv[j] = (DTYPE *) alignedMalloc(sizeof(DTYPE) *
                                 layer_config[j][bias_size], DMA_ALIGNMENT);
-    bn_add_conv[j] =
-        (DTYPE *) alignedMalloc(sizeof(DTYPE) *
+    bn_add_conv[j] = (DTYPE *) alignedMalloc(sizeof(DTYPE) *
                                 layer_config[j][bias_size], DMA_ALIGNMENT);
 
     memset(weight_conv[j], 0, sizeof(DTYPE) * weight_size);     // reset all value (include padding value) to zero
@@ -1858,6 +1859,7 @@ int prepare()
     ptr += layer_config_original[j][bias_size];
 
     // Batch normalization
+    fprintf(stderr, "Layer: %d\n", j);
     reorderBias(weights, bn_mult_conv[j], ptr, padding_offset[j],
                 layer_config[j][bias_size],
                 layer_config_original[j][bias_size], LANE_NUM);
@@ -1952,6 +1954,7 @@ void reorderBias(DTYPE * dataIn, DTYPE * bias, unsigned offset,
     printf("Not enough memory when reordering bias!!!");
     free(copy_with_padding);
   }
+  fprintf(stderr, "dim4: %u, dim4_original: %u\n", dim4, dim4_original);
   memset(copy_with_padding, 0, sizeof(DTYPE) * dim4);
   // padding evenly on two sides of weight_m
   memcpy(copy_with_padding + padding_offset, dataIn + offset,

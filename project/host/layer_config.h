@@ -614,26 +614,26 @@ unsigned layer_config[][NUM_CONFIG_ITEM] =
       0, 13, 13, 256, 3, 2, /* pooling */
       2,  /* normalization */
       4, /* shortcut */
-      2}, /* memwr_dst */
+      2}, /* memwr_dst */ // 19
      {0, /* layer_type */
       4, 4, 512, 3, 3, 512, 512, 512, /* memRd params */
       2, /* memrd_src */
       4, 4, 512, 1, 1, 0, 1, /* conv params */
-      1, 4, 4, 512, 4, 4, /* pooling */
+      1, 1, 1, 512, 4, 4, /* pooling */
       2, /* normalization */
       0, /* shortcut */
-      3}, /* memwr_dst */
+      3}, /* memwr_dst */ // 20
 
 
      /* fc layer */
      {1, /* layer_type */
-      4, 4, 512, 512, 10, 0, 0, 10, /* memRd params */ // TODO: should it be 0, 0, 512, 10 ?
+      1, 1, 512, 1, 1, 512, 10, 10, /* memRd params */ // TODO: should it be 0, 0, 512, 10 ?
       3, /* memrd_src */
-      4, 4, 512, 1, 1, 0, 1, /* conv params */
+      1, 1, 10, 1, 0, 0, 0, /* conv params */
       0, 4, 4, 512, 4, 4, /* pooling */
       0, /* normalization */
       4, /* shortcut */
-      4} /* memwr_dst */
+      4} /* memwr_dst */ // 21
     };
 
 char precision_config[][3] ={{8,  0, -4},//Layer-1
