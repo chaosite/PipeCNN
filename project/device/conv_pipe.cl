@@ -160,7 +160,6 @@ void memRead(
               uchar win_size_x, uchar win_size_y, uint win_size_xyz,
               // Data Ports
               __global lane_data * restrict bottom,
-              __global lane_data * restrict shortcut,
               __global channel_vec * restrict weights,
               __global channel_scal * restrict bias,
               __global channel_scal * restrict bn_mult,
@@ -169,7 +168,6 @@ void memRead(
 
   // Input Data, Weights and Bias
   lane_data data_vec;
-  lane_data shortcut_vec;
   channel_vec data_ch_vec;
   channel_vec weight_ch_vec;
   channel_scal bias_ch_in;
@@ -219,8 +217,8 @@ void memRead(
 
           data_vec =
               bottom[data_offset * data_dim1xdim2 +
-                     feature_idx_dim3 * data_dim1xdim2 + (feature_idx_dim2 -
-                                                          padding) * data_dim1 +
+                     feature_idx_dim3 * data_dim1xdim2 +
+                     (feature_idx_dim2 - padding) * data_dim1 +
                      (feature_idx_dim1 - padding)];
         } else {
 #pragma unroll
@@ -468,7 +466,8 @@ __kernel __attribute__ ((task))
 __attribute__ ((max_global_work_dim(0)))
 void coreConv( // Params Ports
                uint output_num, uint conv_loop_cnt, uint control, // 0x1 = relu 0x2 = bypass pooling 0x4 = bypass batchnorm
-               char frac_w, char frac_din, char frac_dout)
+               char frac_w, char frac_din, char frac_dout,
+               __global lane_data * restrict shortcut)
 {
   channel_vec mac_data;
   channel_vec mac_weight;
@@ -586,6 +585,7 @@ void coreConv( // Params Ports
       }
 
       // Shortcut add.
+      conv_sum_bias[ll] += shortcut[k].data[ll];
 
 
 #ifndef USE_FLOAT

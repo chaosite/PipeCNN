@@ -738,40 +738,6 @@ int main(int argc, char **argv)
                        "Failed to set argument %d of kernel memRd", argi - 1);
           }
 
-          // Shortcut buffer
-          if (layer_config[j][shortcut_src] == 0) {
-            status =
-                clSetKernelArg(knl_memRd[i],
-                               argi++,
-                               sizeof(cl_mem),
-                               &data_buf[i * input_config[batch_size] + k]);
-            checkError(status,
-                       "Failed to set argument %d of kernel memRd", argi - 1);
-          } else if (layer_config[j][shortcut_src] == 1) {
-            status =
-                clSetKernelArg(knl_memRd[i],
-                               argi++,
-                               sizeof(cl_mem),
-                               &output_buf[i * input_config[batch_size] + k]);
-            checkError(status,
-                       "Failed to set argument %d of kernel memRd", argi - 1);
-          } else if (layer_config[j][shortcut_src] == 2) {
-            status =
-                clSetKernelArg(knl_memRd[i],
-                               argi++,
-                               sizeof(cl_mem),
-                               &output2_buf[i * input_config[batch_size] + k]);
-            checkError(status,
-                       "Failed to set argument %d of kernel memRd", argi - 1);
-          } else { // 4
-            status =
-                clSetKernelArg(knl_memRd[i],
-                               argi++,
-                               sizeof(cl_mem),
-                               NULL);
-            checkError(status,
-                       "Failed to set argument %d of kernel memRd", argi - 1);
-          }
 
           status =
               clSetKernelArg(knl_memRd[i],
@@ -854,6 +820,42 @@ int main(int argc, char **argv)
                              &precision_config[j][frac_dout]);
           checkError(status,
                      "Failed to set argument %d of kernel conv", argi - 1);
+
+                    // Shortcut buffer
+          if (layer_config[j][shortcut_src] == 0) {
+            status =
+                clSetKernelArg(knl_conv[i],
+                               argi++,
+                               sizeof(cl_mem),
+                               &data_buf[i * input_config[batch_size] + k]);
+            checkError(status,
+                       "Failed to set argument %d of kernel conv", argi - 1);
+          } else if (layer_config[j][shortcut_src] == 1) {
+            status =
+                clSetKernelArg(knl_conv[i],
+                               argi++,
+                               sizeof(cl_mem),
+                               &output_buf[i * input_config[batch_size] + k]);
+            checkError(status,
+                       "Failed to set argument %d of kernel conv", argi - 1);
+          } else if (layer_config[j][shortcut_src] == 2) {
+            status =
+                clSetKernelArg(knl_conv[i],
+                               argi++,
+                               sizeof(cl_mem),
+                               &output2_buf[i * input_config[batch_size] + k]);
+            checkError(status,
+                       "Failed to set argument %d of kernel conv", argi - 1);
+          } else { // 4
+            status =
+                clSetKernelArg(knl_conv[i],
+                               argi++,
+                               sizeof(cl_mem),
+                               NULL);
+            checkError(status,
+                       "Failed to set argument %d of kernel conv", argi - 1);
+          }
+
 
           //  Set knl_pool arguments.
           if (layer_config[j][pool_on]) {
@@ -1581,7 +1583,7 @@ int prepare()
         printf
             ("\nError: incorrect setting of convolution input/output size for layer-%d!!!\n",
              ll + 1);
-        return 1;
+        // return 1;
       }
     }
     if ((layer_config_original[ll][conv_x] !=
