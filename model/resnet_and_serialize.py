@@ -4,6 +4,7 @@ import torch
 import os
 from collections import OrderedDict
 import struct
+import numpy
 
 __all__ = ['resnet_original']
 
@@ -271,21 +272,27 @@ def serialize_conv_to_file(conv, output_file):
      #### write first conv to file ####
     weights_tensor = conv.weight
     weights = weights_tensor.detach().numpy()
+    weights = numpy.swapaxes(weights, 1, 2)
+    weights = numpy.swapaxes(weights, 0, 1)
+    weights = numpy.swapaxes(weights, 1, 2)
+    weights = numpy.swapaxes(weights, 2, 3)
+    weights = numpy.swapaxes(weights, 1, 2)
+    weights = numpy.swapaxes(weights, 0, 1)
 
     ## weights ##
-    for idx_0 in range(weights_tensor.shape[0]):
-        for idx_1 in range(weights_tensor.shape[1]):
-            for idx_2 in range(weights_tensor.shape[2]):
-                for idx_3 in range(weights_tensor.shape[3]):
+    for idx_0 in range(weights.shape[0]):
+        for idx_1 in range(weights.shape[1]):
+            for idx_2 in range(weights.shape[2]):
+                for idx_3 in range(weights.shape[3]):
                     raw_float = struct.pack("f", weights[idx_0][idx_1][idx_2][idx_3])
                     output_file.write(raw_float)
 
     ## bias - padding of zeros ##
     raw_zero = struct.pack("f", 0)
-    for idx_0 in range(weights_tensor.shape[0]):
-        for idx_1 in range(weights_tensor.shape[1]):
-            for idx_2 in range(weights_tensor.shape[2]):
-                for idx_3 in range(weights_tensor.shape[3]):
+    for idx_0 in range(weights.shape[0]):
+        for idx_1 in range(weights.shape[1]):
+            for idx_2 in range(weights.shape[2]):
+                for idx_3 in range(weights.shape[3]):
                     output_file.write(raw_zero)
 
 def serialize_bn_to_file(bn, output_file):
