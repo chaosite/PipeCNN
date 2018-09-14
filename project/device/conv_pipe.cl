@@ -585,7 +585,9 @@ void coreConv( // Params Ports
       }
 
       // Shortcut add.
-      conv_sum_bias[ll] += shortcut[k].data[ll];
+      if ((control & 0x08) == 0x08) {
+          conv_sum_bias[ll] += shortcut[k].data[ll];
+      }
 
 
 #ifndef USE_FLOAT

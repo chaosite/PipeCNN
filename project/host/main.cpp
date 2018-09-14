@@ -539,7 +539,7 @@ int main(int argc, char **argv)
           conv_control = (layer_config[j][conv_relu] & 0x01) // 1 bit
               | (((~layer_config[j][pool_on]) & 0x01) << 1) // 1 bit
               | ((!!(layer_config[j][normalization] == 2)) << 2) // 1 bits
-              | (((layer_config[j][shortcut_src]) & 0x07) << 3); // 3 bits
+              | (!!((layer_config[j][shortcut_src]) != 4)); // 1 bits
 
           status =
               clSetKernelArg(knl_memRd[i], argi++,
